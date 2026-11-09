@@ -38,7 +38,8 @@ The sandbox covers only the processes Persona starts in it. These reach the secr
 - **Starts this version does not wrap**: an agent started in herdr or Orca, or resumed after herdr restarts, by a
   launcher other than `personad launch` (plain `claude`, a `~/.zshrc` alias or function); Codex conversations on the
   assistant; a plain `codex` (see "A start is wrapped only when the agent's own sandbox is surely off"). While the
-  switch is on, the node records each such herdr or Orca start as `skipped` under `pane`, so the doctor warns.
+  switch is on, the node records each such herdr or Orca start as `skipped` under `pane`, so the doctor warns; a later
+  start there through a managed launcher clears it.
 - **Code that runs later outside the sandbox**: files an agent writes for another program to run (shell startup
   files, LaunchAgents, git hooks), and programs outside the sandbox it can drive (`open`, `osascript`, `launchctl`,
   herdr's or tmux's sockets, `ssh localhost`).

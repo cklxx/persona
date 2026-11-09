@@ -471,10 +471,17 @@ func TestPaneStartOutsideTheSandboxIsRecorded(t *testing.T) {
 		}
 	}
 
+	// A managed launcher records its own start, and clears an earlier unwrapped one: the user did what the doctor said.
 	n := agentNode(t, true)
 	n.managed.byID = map[string]proto.ManagedLauncher{"work": {Name: "work"}}
+	n.notePaneStart("claude")
+	recordAgentSandbox(n.dir, "launch claude", sandbox.AgentStatus{State: sandbox.AgentActive})
 	n.notePaneStart("work")
-	if got, ok := readAgentSandboxStatus(n.dir)[paneStartWhere]; ok {
-		t.Errorf("a managed launcher records its own start: %+v", got)
+	all := readAgentSandboxStatus(n.dir)
+	if _, ok := all[paneStartWhere]; ok || all["launch claude"].State != sandbox.AgentActive {
+		t.Errorf("after a managed start: %+v", all)
+	}
+	if c := checkAgentSandbox(n.dir); c.Status != DoctorOK {
+		t.Errorf("doctor after a managed start: %+v", c)
 	}
 }
