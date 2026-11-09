@@ -162,7 +162,7 @@ Measured on a lab pane on 2026-10-29 (the tables, the per-segment breakdown and 
 - the phone parses, wraps and draws a frame in about 12 ms (`TerminalFrameCostTests`);
 - Claude Code redraws about every 110 ms while streaming. Node, hub and WebSocket neither accumulate nor throttle frames, so that cadence is Claude's own.
 
-The tunable end is fast-changing panes (Codex-like 60 fps TUIs, long logs run through `!`, vim paging): herdr emits a frame every 16 ms, faster than the phone draws one. The node coalesces with `termMinGap = 30 ms`:
+The tunable end is fast-changing panes (Codex-like 60 fps TUIs, long logs run through `!`, vim paging): herdr then emits a frame every 16 ms, and at about 12 ms per frame (16 ms at p95) the phone would have almost no idle time if every frame were forwarded. The node coalesces with `termMinGap = 30 ms`:
 - First frame after quiet is sent immediately (typing echo doesn't wait).
 - Subsequent frames within 30 ms merge: concatenate delta bytes; a full frame discards preceding deltas. Send at the end of 30 ms.
 - Flush accumulated frames when the stream ends.
@@ -421,7 +421,7 @@ End-to-end: `scripts/test/web_files_drag_e2e.py` (fake hub `MOCK_TERMINAL_STREAM
 
 Copying was prompted by Moshi's browser copying herdr content on the user's machine. It works because Moshi is a full herdr client (herdr emits OSC 52 when considered remote;
 user forced this with `SSH_CONNECTION` in a systemd drop-in, otherwise herdr invokes `wl-copy` on the computer). Browser `@xterm/addon-clipboard` writes received content to `navigator.clipboard`.
-Persona web observes/control streams; "Measurements" below checks whether these carry it. Web implements:
+Single pane reads herdr's observe/control streams, which don't carry it ("Program OSC 52 and color queries never reach pane streams" below). Web implements:
 
 - **Copy selected text** (`keyDecision` in `lib/terminal.ts`, `copyWith` / `copyNotice` in `lib/terminal-clipboard.ts`, `terminal/clipboard.ts`): with selection, ⌃C / ⌘C / ⌃⇧C copies; without, ^C goes to the program as before.
   Clear selection after success (otherwise next ⌃C copies again instead of interrupting). Try `navigator.clipboard.writeText`, then hidden textarea + `execCommand("copy")` if denied or non-HTTPS, explaining
@@ -429,7 +429,7 @@ Persona web observes/control streams; "Measurements" below checks whether these 
   Touch xterm.js lacks drag selection; phones currently select in wrapping mode (View Only screen drawn by page, system long-press selection available).
 - **OSC 52**: load pinned `@xterm/addon-clipboard` 0.2.0 (for `@xterm/xterm` 6.0.0). Program clipboard writes directly; browsers requiring a gesture (Safari, Firefox) show "The terminal program wants to copy text" + Copy if blocked.
   **Read queries (`OSC 52;c;?`) always denied**: provider `readText` returns empty; programs cannot read the user's clipboard (empty-clipboard response). Empty writes and writes over 1 MiB ignored.
-  Currently unreachable in herdr streams ("Measurements" below); ready if herdr or another path later passes it through.
+  Unreachable in Single pane streams ("Program OSC 52 and color queries never reach pane streams" below); Full view loads the same addon and receives it (section 24).
 - **IME**: page key handling (Shift+Enter, copy) yields on `isComposing` or `keyCode === 229`, leaving composition to xterm.
 - **Fonts**: before opening xterm, wait for `document.fonts.load("<size>px <font stack>", "W中")` (中 is the CJK measurement glyph), up to 1.5 seconds, avoiding late fonts and wrong cell measurements. JetBrains Mono in `--font-mono` currently has no `@font-face`, using local fonts,
   so this returns nearly immediately today; useful once web fonts are bundled.
@@ -946,7 +946,7 @@ The measurements (a temporary herdr session, headless Chrome) are in `docs/archi
 
 - `cd web && npm test`: new `widths.test.ts` (default 😀 ✅ width 1; with addon, emoji/ZWJ family/flags/`❤️` width 2; ideographs/fullwidth punctuation 2; Latin/borders/`⌘ ✓ ★ →` 1).
 - `scripts/test/web_herdr_full_cjk_e2e.py` (fake hub acting as client, positions each wide glyph like real herdr): four `│` borders per row within 0.25 cells of ASCII row (after fix max 0.08, without CSS max 4.77); second emoji cell has no previous-frame residue (without width table, `Z` remains); light/dark each once.
-- `scripts/test/web_herdr_full_live.py` / `web_herdr_full_conflicts_live.py` use same approach with real temporary herdr session; measurements above used it.
+- `scripts/test/web_herdr_full_live.py` / `web_herdr_full_conflicts_live.py` use same approach with real temporary herdr session; the archived measurements (`docs/archive/integrations/terminal-records.md`) used it.
 
 ## 28. Focus synchronization: herdr and Persona sidebars move together (web, #3021)
 
