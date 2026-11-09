@@ -220,9 +220,15 @@ func outsideCapabilities(c claudeProc) (*proto.SessionCapabilities, string) {
 	return &proto.SessionCapabilities{Read: true}, proto.ReadOnlyClaudeInbox
 }
 
-// outsidePane is the tmux pane an outside claude runs in, "" when it runs in none (#2562): Claude Code writes it down
-// in its own session file, so no process environment is read for it.
-func outsidePane(c claudeProc) string { return tmuxPaneOf(c.Tmux) }
+// outsidePane is the tmux pane an outside claude runs in, "" when it runs in none (#2562): Claude Code writes the pane
+// down in its own session file, and the process's TMUX names the server that pane belongs to ("" for the default one).
+func outsidePane(c claudeProc) string {
+	socket := ""
+	if paneEnvOfPID != nil {
+		socket = tmuxSocket(paneEnvOfPID(c.pid)[tmuxEnv])
+	}
+	return tmuxPaneOf(c.Tmux, socket)
+}
 
 // outsidePaneOf is the tmux pane a session outside Persona's panes runs in, "" for any other session: where a card's
 // answer goes when no host lists an agent for it (send.go paneFor, panescreen.go screen).
@@ -382,3 +388,10 @@ func (n *Node) enginePaneRefs(env map[string]string) []string {
 // herdrSessionEnv and herdrSocketEnv come along to tell which herdr server's pane HERDR_PANE_ID is.
 var enginePaneEnvs = []string{herdrPaneEnv, herdrSessionEnv, herdrSocketEnv, herdrCorePaneEnv, orcaPaneEnv, orcaLegacyPaneEnv,
 	botmuxPaneEnv}
+
+// tmuxEnv is tmux's own variable in a pane's processes: "<socket>,<server pid>,<session index>". Its socket names the
+// server the pane belongs to, which a pane id alone does not (tmuxHost).
+const tmuxEnv = "TMUX"
+
+// paneEnvKeys are the variables read from a process's environment: the engines' pane variables, and the tmux server.
+var paneEnvKeys = append(append([]string{}, enginePaneEnvs...), tmuxEnv)
