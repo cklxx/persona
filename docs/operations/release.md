@@ -376,7 +376,7 @@ curl -fsSL <publish.site_url>/install.sh | sh   # install to ~/.persona/bin/pers
   The push relay is in the same Worker (`/relay/*`) and is redeployed on each publish too.
 - Push relay deployed (2026-11-02): resident `personad relay` + Cloudflare Tunnel + website Worker forwarding; public health, origin protection, registration and authentication verified.
   Release config needs `app.push_relay`; only a new TestFlight with the notification extension registers. Notification decryption on real devices still needs separate acceptance; see `docs/operations/push-relay.md`.
-- Not yet available (others can install, but it's still awkward; see `docs/operations/config.md`): one-step `personad setup` (hub currently needs manual Postgres and `hub.json` setup),
+- Not yet available (others can install, but it's still awkward; see `docs/operations/config.md`):
   Developer ID notarization of the macOS binary (browser downloads get blocked by Gatekeeper; `curl` doesn't).
 
 ## Publishing the hub image (`.github/workflows/hub-image.yml`, 2026-11-01)
