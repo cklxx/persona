@@ -10,6 +10,7 @@ import fnmatch
 import importlib.util
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -354,6 +355,10 @@ class CheckFastScriptsTests(unittest.TestCase):
 
 
 FAKE_GO = '#!/bin/sh\nprintf "%s|%s\\n" "${PWD##*/}" "$*" >> "$FAKE_GO_LOG"\n'
+# The package lists of check-fast's two repo-wide guard calls: whole packages, and the named guard tests (-run) of two
+# packages whose other tests are slow or need Postgres.
+GUARD_PACKAGES = "./internal/lazyre ./internal/archguard ./internal/tzguard ./plugins"
+GUARD_RUN_PACKAGES = "./internal/hub ./internal/assistant"
 
 
 @unittest.skipUnless(shutil.which("timeout") or shutil.which("gtimeout"), "check-fast.sh needs GNU timeout")
@@ -421,6 +426,14 @@ class CheckFastServerInputsTests(unittest.TestCase):
         # The package pattern is the last argument of each recorded "go test ... ./internal/<pkg>/..." call.
         return out, sorted(call.split()[-1] for call in calls if call.startswith("server|test "))
 
+    def go_calls(self):
+        """Every recorded go call ("<cwd basename>|<args>") without the -timeout value check-fast derives from its budget."""
+        calls = self.go_log.read_text().splitlines() if self.go_log.exists() else []
+        return [re.sub(r" -timeout \S+", "", call) for call in calls]
+
+    def guard_calls(self):
+        return [call for call in self.go_calls() if call.endswith((" " + GUARD_PACKAGES, " " + GUARD_RUN_PACKAGES))]
+
     def test_a_spec_fixture_runs_the_packages_that_read_it(self):
         self.write("spec/fixtures/x.json", '{"changed": true}\n')
         out, packages = self.check_fast()
@@ -450,6 +463,47 @@ class CheckFastServerInputsTests(unittest.TestCase):
         self.write("scripts/test/server_test_env.py", "# changed\n")
         out, packages = self.check_fast()
         self.assertEqual(["./internal/db/dbtest/..."], packages, out)
+
+    def test_a_server_go_change_also_runs_the_repo_wide_guards(self):
+        # The guards fail on code outside their own package (#1936 broke the lazyre guard on main that way), so a change
+        # in any package runs them next to that package's own tests.
+        self.write("server/internal/foo/x.go", "package foo\n")
+        out, packages = self.check_fast()
+        self.assertIn("queued: server repo-wide guards", out)
+        self.assertIn("./internal/foo/...", packages)
+        calls = self.guard_calls()
+        self.assertEqual(2, len(calls), out)
+        self.assertEqual("server|test -count=1 " + GUARD_PACKAGES, calls[0])
+        match = re.fullmatch(r"server\|test -count=1 -run \^\(([\w|]+)\)\$ " + re.escape(GUARD_RUN_PACKAGES), calls[1])
+        self.assertIsNotNone(match, calls[1])
+        # go test -run passes when a name matches nothing: every named guard must exist, and every package directory.
+        sources = "".join(path.read_text() for package in GUARD_RUN_PACKAGES.split()
+                          for path in (ROOT / "server" / package).glob("*_test.go"))
+        defined = set(re.findall(r"^func (Test\w+)\(t \*testing\.T\)", sources, re.M))
+        self.assertEqual(set(), set(match.group(1).split("|")) - defined)
+        for package in (GUARD_PACKAGES + " " + GUARD_RUN_PACKAGES).split():
+            self.assertTrue((ROOT / "server" / package).is_dir(), package)
+
+    def test_a_plugin_change_runs_its_own_tests_and_the_guards_not_a_build(self):
+        self.write("server/plugins/wechat/x.go", "package wechat\n")
+        out, packages = self.check_fast()
+        self.assertIn("./plugins/wechat/...", packages)
+        self.assertEqual(2, len(self.guard_calls()), out)
+        self.assertNotIn("server|build ./...", self.go_calls(), out)
+
+    def test_an_sdk_go_change_runs_the_guards(self):
+        # The plugins guard reads sdk/go: a plugin uses only the SDK, and the SDK stands alone.
+        self.write("sdk/go/x.go", "package sdk\n")
+        out, _ = self.check_fast()
+        self.assertEqual(2, len(self.guard_calls()), out)
+
+    def test_a_docs_or_web_change_runs_no_guard(self):
+        self.write("docs/example-guide.md", "guide changed\n")  # a server test reads it: that package still runs
+        self.write("web/src/x.ts", "export {}\n")
+        out, packages = self.check_fast()
+        self.assertEqual(["./internal/guide/conformance/..."], packages, out)
+        self.assertEqual([], self.guard_calls(), out)
+        self.assertNotIn("repo-wide guards", out)
 
 
 # A privacy-scan stub that never finishes on its own: it records its own pid, its parent's (the GNU timeout that runs

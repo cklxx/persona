@@ -19,7 +19,10 @@
 #   site/**                    node --test site/worker.test.mjs
 #   sdk/ts/**                  bun test (skipped with a reason when bun is absent)
 #   sdk/go/**                  go test ./... inside the sdk/go module
-#   server/internal/foo/**     go test ./internal/foo/...   (cmd/ likewise; uncategorized server changes: go build ./...)
+#   server/internal/foo/**     go test ./internal/foo/...   (cmd/<x>/** and plugins/<x>/** likewise; other server
+#                              changes: go build ./...)
+#   server/**, sdk/go/**       also the server's repo-wide guard tests (GO_GUARD_PKGS, GO_GUARD_TESTS), which fail on
+#                              code outside their own package; --all runs them as part of go test ./...
 #   server/internal/db/migrations/**, scripts/ci/migration_freeze.py
 #                              python3 scripts/ci/migration_freeze.py (a migration already on the base must not be
 #                              edited, deleted or renamed; comment- and whitespace-only edits pass; a new file may be
@@ -332,12 +335,35 @@ job_sdk_ts() {
   in_dir sdk/ts step "$TIMEOUT_OTHER" "sdk/ts: bun test" bun test
 }
 
-job_go() {  # $1 = a package dir (internal/foo, cmd/bar) or ALL for ./...
+job_go() {  # $1 = a package dir (internal/foo, cmd/bar, plugins/baz) or ALL for ./...
   [ "$HAVE_GO" -eq 1 ] || skip "go not found"
   local _pattern _label _inner
   if [ "$1" = ALL ]; then _pattern=./...; _label="go test ./..."; else _pattern="./$1/..."; _label="go test ./$1/..."; fi
   _inner=$((TIMEOUT_GO_TEST - 10)); [ "$_inner" -lt 5 ] && _inner=5
   in_dir server step "$TIMEOUT_GO_TEST" "$_label" go test -count=1 -timeout "${_inner}s" "$_pattern"
+}
+
+# The server's repo-wide guards: tests that read other packages' source, go list output, the migrations or sdk/go, so
+# a change anywhere under server/ or sdk/go/ can fail them while go test on the touched packages passes (#1936 broke
+# the lazyre guard on main that way). The list is curated, not every *guard*_test.go: internal/node's pathguard and
+# writeguard tests and internal/hub's ownership_guard_test.go test their own package's behaviour. GO_GUARD_PKGS run
+# whole; GO_GUARD_TESTS names the guard tests of GO_GUARD_TEST_PKGS, whose other tests are slow or need Postgres.
+GO_GUARD_PKGS=(./internal/lazyre ./internal/archguard ./internal/tzguard ./plugins)
+GO_GUARD_TEST_PKGS=(./internal/hub ./internal/assistant)
+GO_GUARD_TESTS='^(TestHubAnswersOnlyItsOwnRoutes|TestHubDoesNotImportTheManager|TestHubCallsNoModel|TestHubStoreStaysSmall'\
+'|TestTheHubOpensNoneOfTheManagersFiles|TestStoresTouchTheirOwnTables|TestSettingsKeysAreOneSidesOwn'\
+'|TestTheLaunchersSealedFieldsAreReSealed|TestPlacesThatSealAreKnown)$'
+
+# job_go_guards runs both guard commands, the second one also when the first failed, so one run names every failure.
+job_go_guards() {
+  [ "$HAVE_GO" -eq 1 ] || skip "go not found"
+  local _inner=$((TIMEOUT_GO_TEST - 10)) _rc=0
+  [ "$_inner" -lt 5 ] && _inner=5
+  in_dir server step "$TIMEOUT_GO_TEST" "go test ${GO_GUARD_PKGS[*]}" \
+    go test -count=1 -timeout "${_inner}s" "${GO_GUARD_PKGS[@]}" || _rc=$?
+  in_dir server step "$TIMEOUT_GO_TEST" "go test -run <guard tests> ${GO_GUARD_TEST_PKGS[*]}" \
+    go test -count=1 -timeout "${_inner}s" -run "$GO_GUARD_TESTS" "${GO_GUARD_TEST_PKGS[@]}" || _rc=$?
+  return "$_rc"
 }
 
 job_go_build() {
@@ -507,7 +533,7 @@ job_extension_schema() {
 
 CORE_FAIL=0
 CHANGED=""
-WEB=0; SDKTS=0; ANDROID=0; PRNEEDS=0; EXTSCHEMA=0; SERVER_BUILD=0; APPLE=0; UNMAPPED=0
+WEB=0; SDKTS=0; ANDROID=0; PRNEEDS=0; EXTSCHEMA=0; SERVER_BUILD=0; APPLE=0; UNMAPPED=0; GO_GUARDS=0
 SITE=0; SDKGO=0; EXTREFS=0; SDKBUNDLE=0
 INTEG=(); GO_GROUPS=(); UNMAPPED_FILES=(); SCRIPT_TESTS=()
 CORE_MISSING=()
@@ -571,6 +597,7 @@ else
     case "$f" in
       schema/extension/*|spec/fixtures/injected/*|spec/fixtures/sync/*|scripts/mock/inbox_events.json) WEB=1 ;;
     esac
+    case "$f" in server/*|sdk/go/*) GO_GUARDS=1 ;; esac  # on top of the mapping below (job_go_guards)
     case "$f" in
       web/*) WEB=1 ;;
       site/*) SITE=1 ;;
@@ -582,7 +609,9 @@ else
       server/*)
         _rest=${f#server/}
         case "$_rest" in
-          internal/*/*) ;;  # package groups are collected in a second pass below
+          # Package groups are collected in a second pass below; plugins/<file> is the plugins package, which the
+          # repo-wide guard job runs.
+          internal/*/*|plugins/*) ;;
           cmd/*)
             _after=${_rest#cmd/}
             case "$_after" in
@@ -619,13 +648,14 @@ else
   done <<< "$CHANGED"
 fi
 
-# Collect affected server packages: server/internal/foo/... -> ./internal/foo/...
+# Collect affected server packages: server/internal/foo/... -> ./internal/foo/..., plugins/bar/... likewise.
 if [ "$ALL" -eq 0 ]; then
   while IFS= read -r f; do
     case "$f" in
-      server/internal/*/*)
-        _rest=${f#server/internal/}
-        _g="internal/${_rest%%/*}"
+      server/internal/*/*|server/plugins/*/*)
+        _rest=${f#server/}
+        _top=${_rest%%/*}; _rest=${_rest#*/}
+        _g="$_top/${_rest%%/*}"
         arr_has "$_g" "${GO_GROUPS[@]:-}" || GO_GROUPS+=("$_g") ;;
     esac
   done <<< "$CHANGED"
@@ -787,6 +817,9 @@ else
   fi
   if [ "$SERVER_BUILD" -eq 1 ]; then
     if [ "$HAVE_GO" -eq 1 ]; then schedule "server go build ./..." job_go_build ""; else INFO+=("SKIP  server go build: go not found"); fi
+  fi
+  if [ "$GO_GUARDS" -eq 1 ]; then
+    if [ "$HAVE_GO" -eq 1 ]; then schedule "server repo-wide guards" job_go_guards ""; else INFO+=("SKIP  server repo-wide guards: go not found"); fi
   fi
 fi
 
