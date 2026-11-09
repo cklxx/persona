@@ -83,7 +83,7 @@ The authenticated WS `hello.features` always lists server capabilities; trusted 
   - Computers: `machine_trust` (a machine's `trust` / `error_code` and `POST /machines/{id}/confirm`, `…/reject`, see "Computer trust" below), `machines_add` (a signed-in device adds a computer and gets the computer's pairing code via `add` on `POST /api/v1/auth/pair-codes`, see "Computer pairing codes" under "Temporary pairing" below).
   - Extensions ([extensions.md](../extensions/extensions.md)): `extensions` (`GET /api/v1/extensions` and the relay under `/api/v1/extensions/{id}/`), `extension_manager` (an extension's detail, form, settings, secrets and switch under `/api/v1/extensions/{id}/-/`), `extension_ui_slots` ("UI slots", `extension_ui` events), `extension_auto_upgrade` ("Auto-upgrade", `extension_upgrade` events), `extension_market_spec` (`PUT /api/v1/extensions/-/markets/{id}` with `spec`: a market moves and keeps its id), `extension_operations` (install, upgrade, uninstall in steps with progress, see "Extension install, upgrade and uninstall progress" below), `extension_auth` (extension sign-in `/api/v1/extensions/{id}/-/auth…`, `extension_auth` events, the install step `tools`, "Sign-in (auth)"), `extension_ui_v3` ("UI version 3"), `extension_widgets`, `extension_shortcuts` and `extension_notify_actions` (widgets, Shortcuts and notification buttons, "System-level placements"). `plugins`, `plugin_manager`, `plugin_ui_slots` and `plugin_auto_upgrade` are the same under the old names (`/api/v1/plugins/…`, `plugin_ui` and `plugin_upgrade` events), kept for the apps out there until at least 2027-05-05 ("Naming and compatibility").
 - Added by the hub:
-  - Always: `sessions_list` (see "Bounded Agents lists"), `sessions_lookup` (see "Exact runtime-session detail"), `machine_rename` (see "Renaming a computer").
+  - Always: `sessions_list` (see "Bounded Agents lists"), `sessions_lookup` (see "Exact runtime-session detail"), `sessions_pane_source` (see "Pane/host origins"), `machine_rename` (see "Renaming a computer").
   - `agent_session_archives` only while every manager (the default one, each connected one and each computer's owner) is connected and names it in its `manager.hello` capabilities, and `agent_session_archive_close` only while every manager names that one too (see "Agent session archives" above).
   - Depending on hub.json: `assistant_views` (`assistant.persona_view` on: declarative actions carry `expected_version`, live cards, and the APIs registered by in-body cards are available), `assistant_html_bridge` (additionally `assistant.html_views` not turned off: `…/html-actions` is available; whether a client runs HTML still depends on its own security sign-off, and it does not run JS based on this flag). See the card APIs in the REST table and [assistant-views.md](../assistant/assistant-views.md).
 - Reported by the manager for the extensions (its `extensions.report`, [extensions.md](../extensions/extensions.md) "Who owns what"): `extension_ui_stream_v1` (whenever the manager runs extensions: extension pages streamed on the app WebSocket once a client negotiates `context.stream`, [extensions.md](../extensions/extensions.md) "Source runtime"), `messaging` (while an extension has a message source, [extension-messaging.md](../extensions/extension-messaging.md)), `error_reports` (while an extension takes error reports, see "Error reports"), and the `features` that the `api` contributions of enabled, running extensions declare ([extensions.md](../extensions/extensions.md) "App endpoints"). The report cannot add `agent_session_archives` or `agent_session_archive_close`: only the managers' hellos decide those.
@@ -963,7 +963,7 @@ Clients report their errors and crashes only while `features` has `error_reports
 | GET | `/api/v1/machines/{mid}/computer` | Whether this Mac has Cua Driver right now and can be controlled by the assistant (the hub asks the node's `computer.status` on the spot) → 200 `Computer` (`{enabled, installed, version?, daemon, accessibility?, screen_recording?, desktop?, screen_sharing, displays?, ready, note?, job?}`; `displays`: the Mac's display arrangement while Screen Sharing answers, [computer-use.md](../extensions/computer-use.md) "Displays"); plugin `cua` not enabled, or not a Mac → 404 |
 | PUT | `/api/v1/machines/{mid}/computer` | `{"enabled": bool}`: the machine page's **Let the Assistant Control This Computer** switch, written to `machines` in the `cua` plugin config → 200 `Computer`; plugin not enabled or not a Mac → 404. `machines` is pushed as usual afterwards |
 | POST | `/api/v1/machines/{mid}/computer/{install\|grant\|cancel}` | The machine page's **Install Cua Driver**, **Grant Access**, **Cancel**: the node runs it in the background (`computer.install` / `computer.grant` / `computer.cancel`), → 200 `Computer`, progress is in its `job` (`{kind, state: running\|done\|failed\|cancelled, step?, error?, started}`), and the page keeps polling with GET. Plugin not enabled for this machine 404; offline, a job already running, or node too old 409 |
-| GET / DELETE | `/api/v1/machines/{mid}/computer/apps`, `…/computer/apps/{bundle}` | The machine page's **Apps Allowed for the Assistant**: GET → `{"apps":[{bundle_id, name, at}]}`; DELETE removes by bundle id (it will ask again next time) and returns the remaining list; can't save 500 ([computer-use.md](../extensions/computer-use.md) "Approving per app") |
+| GET / DELETE | `/api/v1/machines/{mid}/computer/apps`, `…/computer/apps/{bundle}`, `…/computer/apps/revoke/{bundle}` | The machine page's **Apps Allowed for the Assistant**: GET → `{"apps":[{bundle_id, name, at}],"manager"}`; DELETE removes the saved approval by its identifier and returns the remaining list (future prompts follow `app_approval`); can't save 500. Optional `?expected_manager=<manager id>`: the hub checks it against the manager it relays to (409 `machine_owner_changed`) and acknowledges a successful answer with `X-Persona-Computer-Apps-Owner`. The guarded `…/apps/revoke/{bundle}` requires it (428 `expected_manager_required`); the hub relays it to the manager as the plain DELETE ([computer-use.md](../extensions/computer-use.md) "Approving per app") |
 | GET / POST | `/api/v1/machines/{mid}/computer/clipboard` | This Mac's clipboard (used while the App is viewing the screen, #1343): GET → `{"text"}` (truncated beyond 1 MiB); POST `{"text"}` puts it there and returns `{"text":""}` on success (doesn't echo the text). Goes through the node's `computer.clipboard` (`pbcopy` / `pbpaste`); plugin `cua` or `ego` not enabled for this machine 404, offline 409, and a node error (too old, text over 1 MiB, read/write failure) is also 409 ([computer-use.md](../extensions/computer-use.md) "App") |
 | GET / PUT | `/api/v1/machines/{mid}/browser` | This Mac's ego lite (plugin `ego`, [plan-ego-browser.md](../plans/plan-ego-browser.md)): GET asks the node's `browser.status` on the spot → `Browser` (`{enabled, installed, version?, set_up, imported, analytics?, ready, note?, screen_sharing, displays?, job?}`); PUT `{"enabled": bool}` is the machine page's switch (the plugin's `machines`). Plugin not enabled or not a Mac → 404 |
 | POST | `/api/v1/machines/{mid}/browser/{install\|open\|cancel}` | The machine page's **Install ego lite**, **Open ego lite**, **Cancel**: the node runs it in the background, progress is in `job`. Plugin not enabled for this machine 404; offline, a job already running, or node too old 409 |
@@ -1158,7 +1158,7 @@ After rejection or timeout deletion the record is gone (so it looks confirmed), 
 When the hub can't read pending computers (database unreachable), every computer is kept out as pending (the machine list doesn't mark `trust`), re-read every 5 seconds until it succeeds; no timeout deletion happens during that time. When the manager can't read them, requests from computers are refused with the error "the hub's database isn't responding", without saying the computer is waiting for confirmation.
 `error` for `confirm` / `reject` is localized by `Accept-Language` (403 `forbidden`, 404 `not_found`, 409 `not_pending`).
 
-Once confirmed, hello's machine list includes it, and the assistant then pushes keys to it. Issuing a code, redeeming, confirming, rejecting and timeout deletion are all written to the `machine_audit` table (who, when, what was done, no credentials).
+Once confirmed, hello's machine list includes it, and the assistant then pushes keys to it. Issuing a code, redeeming, confirming, rejecting, timeout deletion and deleting it in the admin console (`remove`) are all written to the `machine_audit` table (who, when, what was done, no credentials).
 How a device adds a pending computer: see "Computer pairing codes" under "Temporary pairing" above.
 
 ### Renaming a computer (feature `machine_rename`)
@@ -1402,7 +1402,7 @@ A machine's session list has hundreds of sessions at about 1 KB each, and a push
 
 #### Opt-in parameters (both session collections)
 
-Any of `limit`, `cursor`, `since`, `summary`, `state`, `project`, `group`, or `counts` opts into the bounded API. Without them, legacy requests and response shapes remain unchanged: runtime `machine_id` filtering still returns the complete list; personal-agent `source`/`provider` filtering still returns the complete list; personal-agent `q` alone still searches messages and returns `items`.
+Any of `limit`, `cursor`, `since`, `summary`, `state`, `project`, `group`, or `counts` opts into the bounded API. `pane_source` also opts in, but is supported only by the runtime collection (see below). Without them, legacy requests and response shapes remain unchanged: runtime `machine_id` filtering still returns the complete list; personal-agent `source`/`provider` filtering still returns the complete list; personal-agent `q` alone still searches messages and returns `items`.
 
 | Parameter | Contract |
 | --- | --- |
@@ -1413,7 +1413,8 @@ Any of `limit`, `cursor`, `since`, `summary`, `state`, `project`, `group`, or `c
 | `machine_id` | Exact runtime machine id. Personal-agent sources do not expose a machine, so this filter matches no personal-agent rows. |
 | `project` | Exact runtime `repo_root`, falling back to `workspace_cwd`, then `cwd`. This is the node's supplied path, **not** a guessed repository or a knowledge-base project id. Personal-agent rows have no project. |
 | `group` | Runtime `space_id`, falling back to `workspace_id`; personal-agent `accountId`. Machine-local space ids can overlap: use `machine_id` with `group` when expanding a particular computer's group. This does not represent personal-agent custom preference sections or to-do group ids. |
-| `source` | Runtime `source_kind` or personal-agent contribution id. |
+| `source` | Runtime `source_kind` or personal-agent contribution id; unchanged transport/source semantics, never a pane origin. |
+| `pane_source` | Runtime only: exactly `terminal`, `feishu`, `desktop`, or `unknown`. Requires the independently advertised `sessions_pane_source` capability. See pane/host origins below. |
 | `provider` | Runtime `agent` or personal-agent `provider`. Empty values on older runtime nodes stay empty; no agent name is guessed. |
 | `q` | Case-insensitive substring, at most 256 Unicode characters. Runtime title, cwd, repository, space/slot/agent names and last preview; personal-agent title/provider/account id. With an opt-in parameter this is **row search**, never remote transcript/message search. |
 | `counts` | `1`/`true` returns aggregates instead of rows. `0`/`false` selects a normal page. The same filters apply. |
@@ -1446,6 +1447,30 @@ GET /api/v1/agents/sessions?summary=1&limit=50&source=demo
 - Snapshot retention is five minutes, with at most 32 active views per collection. A restart, expiry or eviction returns HTTP **409**, `code: "cursor_expired"`; restart at page one. Cursors bind filters and summary mode; a mismatched/tampered cursor returns 400.
 - The runtime collection includes Codex history. It uses the manager's already-decorated state, ownership, hidden/deleted-session rules and task metadata; it does not recompute business state in the hub.
 
+#### Pane/host origins (`sessions_pane_source`, #994)
+
+`hello.features` advertises **`sessions_pane_source`** independently of `sessions_list`. Only when it is advertised may clients request:
+
+```http
+GET /api/v1/sessions?pane_source=terminal&summary=1&limit=50
+GET /api/v1/sessions?pane_source=feishu&counts=1
+```
+
+Bounded runtime rows (full and summary) include **`pane_source`**, and runtime counts include a **`pane_source` map** (omitted when empty) over the complete matching set. Classification matches the clients' `sessionSource`, in this order:
+
+1. `space_kind == "codex_app"`, `host == "paseo"`, or both `source_kind == "runtime"` and `source_instance_id == "orca"`: **`desktop`**, even if a pane is present.
+2. A `botmux:` pane: **`feishu`**.
+3. Any other nonempty pane: **`terminal`**. This includes recognized Orca/Herdr App terminal panes and legacy Herdr identities; an unrecognized prefix remains a legacy Herdr pane, as in the host registry.
+4. No such metadata: **`unknown`**. A runtime transport alone is not evidence of a terminal origin.
+
+`source` still filters the existing `source_kind`; neither it nor the session's separate `origin`/`origin_ref` is repurposed. Origin combines with the other supported filters and exact lookup. The filter participates in cache keys and frozen cursor bindings. An origin-only change advances the index revision, updates complete counts, and causes an upsert/removal when a row enters/leaves the filter, even if `source_kind` and `updated_at` stay unchanged. Page, count and delta snapshots retain their existing revision rules; use a matching cursor for frozen counts.
+
+Empty, repeated, comma-separated or unrecognized origin values return **400 `invalid_query`**. Personal-agent `/api/v1/agents/sessions` rejects this runtime-only parameter (including `unknown`); it has no pane/host metadata and does not infer origin from its provider. For an extension token restricted to one manager in a multi-manager hub, aggregate origin requests must specify an authorized `machine_id`; an unsupported aggregate returns **400 `invalid_query`** instead of computing totals through the legacy ownership projection. A token authorized for the whole runtime collection needs no machine selector. Restricted aggregate requests without an origin filter retain the legacy counts projection and omit the new origin dimension; specify a machine to obtain exact origin counts.
+
+These counts describe the hub's complete shown runtime-session collection after the explicit filters, including any assistant/other rows that the legacy collection contains. They do **not** establish preference-defined Agents membership, pins/mutes/to-do sections, retained client windows, personal-agent aggregation or new sorting rules. Machine/session identity remains the composite `(machine_id, session_id)`.
+
+Old hubs ignore unknown query keys, so clients **must retain the old full-list/classifier fallback unless `sessions_pane_source` is advertised**. `sessions_list` alone is insufficient. No current client query, visual default or ordering changes here. Without opt-in, legacy full-list rows and behavior are unchanged; bounded requests without an origin filter retain their membership and ordering.
+
 #### Exact runtime-session detail (`sessions_lookup`, #6054)
 
 `hello.features` advertises **`sessions_lookup`** independently of `sessions_list`. Only when it is advertised, a client can fetch one complete runtime row without paging or scanning unrelated sessions:
@@ -1467,7 +1492,7 @@ The direct lookup/count path does not build, scan or sort unrelated session view
 
 Runtime summaries keep the existing snake_case names and decode as a `Session` with optional detail fields absent. They contain:
 
-- Identity/ownership: `machine_id`, `session_id`, `manager`; source/runtime and hierarchy fields (`source_kind`, `source_thread_id`, `source_instance_id`, `parent_thread_id`, `parent_session_id`, `root_session_id`, `is_subagent`).
+- Identity/ownership: `machine_id`, `session_id`, `manager`; pane/host origin `pane_source` and `host`; source/runtime and hierarchy fields (`source_kind`, `source_thread_id`, `source_instance_id`, `parent_thread_id`, `parent_session_id`, `root_session_id`, `is_subagent`).
 - Display/grouping: `title`, `cwd`, `workspace_cwd`, `repo_root`, `agent`, `agent_label`, `agent_surface`, `agent_name`; space, parent-space, slot, pane, tab and workspace identifiers/names/indices; `todo {id,title}`.
 - State/freshness: `state`, `status`, `updated_at`, `state_since`, `seen_at`, `pending_interactions`, `rev`, `quiet`, `awaits_reply`, `background_working`, `background_waiting`, `starting`, `start_error`, turn-error fields.
 - Row content/progress: `last_text`, `activity`, `activity_at`, `model`, context-token/window counts; bounded `work` (phase/on/line/wait/then/wake/attempts/agent/deferred), `plan`, `goal`, and `loop` timing with its prompt omitted.
@@ -1493,6 +1518,7 @@ GET /api/v1/agents/sessions?counts=1&source=demo
   "project": {"/demo/app": 8000},
   "group": {"space-a": 8000},
   "state": {"working": 2000, "needs_you": 2000, "unread": 2000, "idle": 2000},
+  "pane_source": {"terminal": 4000, "desktop": 2000, "feishu": 1000, "unknown": 1000},
   "background_waiting": 120,
   "revision": "<opaque checkpoint>"
 }
@@ -1500,7 +1526,7 @@ GET /api/v1/agents/sessions?counts=1&source=demo
 
 `background_waiting` (#6045, omitted when 0) is how many of the `working` ones only wait in the background (`Session.background_waiting`); they stay in `state.working` for older apps, and a client that shows them apart takes them out of its Working count.
 
-Each map counts the complete filtered membership by that dimension; missing attributes use the empty-string key. `limit` does not truncate counts. With a matching `cursor`, counts refer to that frozen view; without one they refer to the current collection. `since`, if supplied, is validated but does not turn counts into counts of changes. Read counts separately when a group expands, rather than deriving totals from loaded pages. The maps do not contain preference-defined custom sections, per-user pins/mutes or computed repository trees.
+Each map counts the complete filtered membership by that dimension; missing attributes use the empty-string key. `limit` does not truncate counts. With a matching `cursor`, counts refer to that frozen view; without one they refer to the current collection. `since`, if supplied, is validated but does not turn counts into counts of changes. Read counts separately when a group expands, rather than deriving totals from loaded pages. The runtime `pane_source` map uses the explicit four origins above, including `unknown`; the personal-agent collection omits this dimension. The maps do not contain preference-defined custom sections, per-user pins/mutes or computed repository trees.
 
 #### Incremental recovery
 
@@ -1530,11 +1556,13 @@ Client sequence:
 
 #### Cost and verification
 
-The shared transport index lives in `server/internal/sessionlist`; the runtime adapter is `server/internal/hub/sessions_list.go`, the personal-agent adapter `server/internal/agents/list.go`, and its HTTP facade `server/internal/extmgr/agents.go`.
+The runtime origin classifier lives in `server/internal/sessionorigin`, using the host registry and a shared corpus checked against the web client. The shared transport index carries/matches the immutable origin attribute without classifying sessions. The shared transport index lives in `server/internal/sessionlist`; the runtime adapter is `server/internal/hub/sessions_list.go`, the personal-agent adapter `server/internal/agents/list.go`, and its HTTP facade `server/internal/extmgr/agents.go`.
 
 Runtime indexing is lazy on the first paginated reader/negotiated socket, then updated by the manager's session-list reports and existing push hook. Personal-agent indexing updates when the existing 20-second source cache refreshes or its fallback poll runs; invalidation generations prevent late responses from resurrecting removed/stale data. Unchanged batches do not advance the revision. There is no database migration or new JSON state file.
 
 Filtered ordered views/counts are cached by revision (up to 64); warm pages and counts do not scan or sort the full collection. Unfiltered counters are maintained on changed records, so an unfiltered delta/count request does not scan or sort unrelated sessions even after a revision change. Filtered counts never build an ordered list merely to count matches. A new filter or changed revision builds one ordered view only when pages need it and reuses it. This moves work to updates/first cache misses; it does not claim that an upstream full-list report is O(1). Frozen views, query caches and the journal are bounded. Cold index initialization is a one-off cost and must be measured separately from warm request latency.
+
+`TestRuntimePaneSource8000` compares all pages and complete count dimensions for mixed origins and filter combinations against a corpus independently checked by the current web classifier, including late-page Feishu rows and repeated session ids across machines. Origin-only transitions and frozen page/count/delta bindings have separate regression tests.
 
 `TestAgents8000Measurement` and `BenchmarkAgents8000Legacy` exercise the real runtime HTTP handler with 8,000 synthetic rows (four machines, previews and task metadata), reporting JSON bytes, request CPU, allocations, retained heap and process peak RSS. `TestPersonalAgentPagedRoutes8000` checks the extension HTTP adapter and warm source-call count. Index tests traverse all 8,000 frozen rows, filtered counts, field-only changes, removals, expired cursors/checkpoints and concurrent readers/writers. One-off before/after readings and local test output belong in the linked PR/archived acceptance record, not in this evolving contract.
 

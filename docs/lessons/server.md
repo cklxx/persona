@@ -1,5 +1,9 @@
 # Lessons: hub / node and networking
 
+## A credential bound to an id outlives the entry (#1869)
+
+Deleting a Link computer in admin removed its hub.json entry but left its credential and unused pairing codes valid: the link only failed while no entry had that id, so adding the id again, for any computer, let the old one back in. Now deleting a computer in admin, rejecting it, and a pending one expiring revoke what is bound to its id (`device_tokens.machine_id`, `pair_tokens.machine_id`), and so does adding a computer under an id not in use, from the admin console, an app or `personad hub pair --add`. An entry dropped another way (a manager's `drop_machines`, a hand edit of hub.json) is not revoked then, only when its id is added again through the hub; one written back into hub.json by hand is not covered at all. The revocation filters on the role it means, because a peer hub's credential binds its hub id in the same column.
+
 ## Finish a revocation's activity push before forgetting its target (#1864)
 
 Push registration IDs differ from credential IDs: select the registrations bound
@@ -1284,3 +1288,9 @@ A connector that folds several notifications into one thread (GitHub CI failures
 - An allocation bound read from `runtime.ReadMemStats` counts every goroutine in the process: in a full package run, work other tests left behind pushed the smallest bounds over. Run such a test in a process of its own (`isolated` in `assistant/profile_bench_test.go`, `isolatedSessionAllocation` in `hub/sessions_push_test.go`, #2050). Repeated garbage collection clears pools but does not stop unrelated goroutines; a synchronized allocation in another goroutine is still included in the measured callback's `TotalAlloc` delta. Rerun the whole test in the child, preserving its fixtures, functional assertions, collection cadence and allocation ceilings. Bound and reap the child, propagate its failures, and verify a child receipt rather than treating an early return as isolation. Check the source revision before attributing two failures to the same missing guard: a newer revision may already isolate one of them.
 - A literal gate still checks every template of a catalog on a text that matches none (265 for `InboxText`): index the templates by the first byte of their first literal, and try the ones that start with a placeholder for every text (`i18n.templateIndex`).
 - Background tasks, subagents and a subagent's latest tool are written by hand too, each type under its own layout hash (`backgroundWireLayout`, `subagentWireLayout`, `workflowToolWireLayout`). A field added to one needs its line in `session_wire.go` and that hash; until then that type goes back to reflection.
+
+## Transport source is not pane origin (#994)
+
+A `runtime` session can be an Orca native desktop chat, a CLI in a terminal pane, a botmux topic or an unhosted runtime. Classify pane/host origins from the metadata, with desktop markers taking precedence, and keep transport filtering separate. New query keys need an independent advertised capability because an old hub may silently ignore them and return the wrong membership. Count the full matching index revision, and bind the origin to frozen cursors and delta membership even when the transport and timestamp never change.
+
+When adding scalars beside an embedded session DTO, account for its custom JSON methods: Go promotes them and can silently hide sibling fields. Preserve the compatibility encoding and explicitly serialize the additional list fields.
