@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -84,6 +85,27 @@ func wrapAgent(where, home, dir, cwd string, settings []string, inner func() str
 	}
 	recordAgentSandbox(dir, where, st)
 	return argv, env, st
+}
+
+// paneStartWhere is the doctor's name for an agent the node starts in a herdr or Orca pane by a launcher other than
+// `personad launch`.
+const paneStartWhere = "pane"
+
+// notePaneStart records, while the sandbox is on, that an agent the node starts in a pane with launcher runs outside
+// it: there only a managed launcher (`personad launch`, which records its own start) is wrapped, and herdr's resume
+// repeats the same command (docs/server/agent-sandbox.md, "Starts this version does not wrap"). The doctor then warns
+// instead of reading as if every agent were covered.
+func (n *Node) notePaneStart(launcher string) {
+	if _, managed := n.managedLauncher(launcher); managed {
+		return
+	}
+	if on, _ := agentSandboxOn(n.dir); !on {
+		return
+	}
+	st := sandbox.AgentStatus{State: sandbox.AgentSkipped,
+		Why: "在 herdr 或 Orca 里用「" + launcher + "」启动（不是托管启动器 personad launch），这一版不包，herdr 重启后接着跑的也一样"}
+	log.Printf("agent sandbox: %s not wrapped (%s): %s", paneStartWhere, st.State, st.Why)
+	recordAgentSandbox(n.dir, paneStartWhere, st)
 }
 
 // agentSandboxRecord is one kind of start's last status.
