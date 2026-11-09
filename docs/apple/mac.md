@@ -412,7 +412,7 @@ Causes found (main-thread samples):
 
 ## SSH tunnels (Mac)
 
-Same implementation as iOS (`apple/Packages/PersonaSSH`, see [network.md, "Connecting to the hub through an SSH tunnel"](../operations/network.md#经-ssh-隧道连-hub直连不通时的后备) and [ios.md, "SSH tunnel"](ios.md#ssh-隧道直连不通时的后备891)): **Settings › Hub › SSH Tunnel**, and **Connect via SSH Tunnel** on the pairing page.
+Same implementation as iOS (`apple/Packages/PersonaSSH`, see [network.md, "Connecting to hub through SSH"](../operations/network.md#connecting-to-hub-through-ssh-fallback-when-direct-access-fails) and [ios.md, "SSH tunnels"](ios.md#ssh-tunnels-fallback-when-direct-connections-fail-891)): **Settings › Hub › SSH Tunnel**, and **Connect via SSH Tunnel** on the pairing page.
 The sandboxed App cannot invoke `/usr/bin/ssh` or read `~/.ssh`, so the tunnel runs in-process and the App generates its own key; loopback listeners use the existing `com.apple.security.network.server`
 entitlement (also used by port forwarding). Mac does not enter the background lifecycle; the tunnel stays open and switches back within 2 minutes once direct connectivity works.
 Screenshots: `mac_shot.sh`'s `-macSnapshot` does not read the keychain; provide a test key with `-seedSSHKey` (`docs/operations/testing.md` ("SSH tunnel")); screenshot-mode public-key comments always use device name "Mac", never the actual Mac name.

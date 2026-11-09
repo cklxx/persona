@@ -54,7 +54,7 @@ After step 1 (same test):
 - Chat pages are unchanged from step 0 (new shell 5, Historical tab navigation 4; step 2's work). One isolated run measured 7 Agent chat bubble redraws on a `rev` push (Historical tab navigation 1.4),
   but the full matrix rerun was 0 and it didn't recur. Chat pages don't read `AgentsFeed`; step 2 adds a bubble-count limit and checks again.
 
-After step 2 (same test; wait until the page stops redrawing before measuring, see "Step 2" below; two runs per layout):
+After step 2 (same test; wait until the page stops redrawing before measuring, see the guide's "Step 2"; two runs per layout):
 
 | Page | Layout | One `rev` | One `last` | Views recomputed |
 | --- | --- | --- | --- | --- |
@@ -93,7 +93,7 @@ At this point, a push changing one field of one session recomputes only the leaf
 | Step | Work | Acceptance (numbers) |
 | --- | --- | --- |
 | 0 (#243, merged) | Screen probes + truth / timeliness tests + don't hold critical updates + land within 0.5 s / 5 s maximum; measure the baseline | `ScreenTruthTests`, both layouts × both styles, green for 3 consecutive rounds; numbers in "Cost of one push" above |
-| 1 (#338, merged) | Publish Agents list structure separately from rows ("Step 1" below): each row follows its own Agent (`AgentsFeed.Row`), and the list reorders only on structural changes | A push changing one field in one session: recomputed views ≤ leaf views reading that session + 1; zero list body calls if structure is unchanged |
+| 1 (#338, merged) | Publish Agents list structure separately from rows (the guide's "Step 1"): each row follows its own Agent (`AgentsFeed.Row`), and the list reorders only on structural changes | A push changing one field in one session: recomputed views ≤ leaf views reading that session + 1; zero list body calls if structure is unchanged |
 | 2 (#620, merged) | Split volatile fields: put `rev`, `updated_at`, tokens, ports in separate small objects, read only by the leaf views displaying them (relative time, last line), following `WaitingBadge` | Pushes churning `rev` / `updated_at`: zero views recomputed except the `Text` displaying time |
 | 3 (#639, merged) | Move derived data into models: sorts, groups, filter counts, badges computed in the model and published only when results change (`AgentListOrder` moved into `AgentsFeed`) | List body runs only when order / groups / counts change; badges run only when the number changes |
 | 4 (#880, merged) | One model-layer policy for "user is interacting": during dragging, inertia, open menus, or keyboard input, merge and defer noncritical updates; critical updates go immediately; maximum delay bounded. Extract `AgentsFeed` holding into reusable `Hold`, with pages registering their state | Existing `LiveUpdateTests`, `ScrollUnderPushTests`, `ScreenTruthTests` all green; no page-specific holding code remains (source check) |
