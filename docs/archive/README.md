@@ -44,6 +44,8 @@ Place necessary historical text under its module directory and list it below.
 | `operations/plan-hub-center.md` | Historical primary-hub design and rollout plan; current contract is in the mesh guide |
 | `operations/plan-hub-mesh.md` | Superseded multi-hub topology proposal; current primary/member behavior is in the mesh guide |
 | `operations/rolling-upgrade-compatibility-verification.md` | Rolling-upgrade verification (#6223) |
+| `operations/windows-records.md` | node on Windows: real-machine checks of Orca, herdr, install, tray, Claude outside Persona's terminals and Codex (2026-11-03 to 2026-11-07) |
+| `operations/hub-restart-records.md` | Seamless hub restarts: measured results after #1617 and the before-change journal (2026-11-04) |
 | `redesign/android.md` | Android plan |
 | `redesign/flows.md` | Main feature flow diagrams |
 | `redesign/hub-changes.md` | Hub change list |
