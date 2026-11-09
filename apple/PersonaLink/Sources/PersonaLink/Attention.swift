@@ -86,15 +86,19 @@ extension LinkAttention.Item {
     }
 }
 
-/// Which notifications to post and take back as summaries arrive: one per session (`Item.id`), only for items that
-/// `notify`; none for the sessions already in a connection's first summary (the web app's baseline rule); a newer card of
-/// a session replaces its notification; a session that left the summary, or whose notification is about a card it no
+/// Which notifications to post and take back as summaries arrive: one per session (`Item.id`), when a card first
+/// `notify`s on a connection, also when it was listed without notifying before (the assistant handed you its question);
+/// none for the cards already notifying in a connection's first summary (the web app's baseline rule); a newer card of a
+/// session replaces its notification; a session that left the summary, or whose notification is about a card it no
 /// longer waits on, takes its notification back.
 struct AttentionNotifications {
-    /// A session of the last summary: the card it waits on ("" without one), and whether it notifies.
+    /// A session of the last summary: the card it waits on ("" without one), whether it notifies now, and whether that
+    /// card notified on this connection (in the first summary too) or its notification is still shown, so it does not
+    /// notify twice.
     struct Entry: Equatable {
         var card: String
         var notify: Bool
+        var notified: Bool
     }
 
     /// The last summary's sessions on this connection; nil until its first summary.
@@ -120,16 +124,24 @@ struct AttentionNotifications {
             }
             return Changes(connection: connection)
         }
-        var current = Dictionary(attention.items.map { ($0.id, Entry(card: $0.card, notify: $0.notify)) }) { first, _ in first }
+        var current: [String: Entry] = [:]
+        for item in attention.items where current[item.id] == nil {
+            let before = known?[item.id]
+            current[item.id] = Entry(card: item.card, notify: item.notify,
+                                     notified: item.notify || shown[item.id] == item.card
+                                         || before?.card == item.card && before?.notified == true)
+        }
         if attention.more > 0 {
             // The list is capped (the oldest cut): a session missing from it may still wait beyond the cap. It keeps
             // what is known of it, so its notification stays and its coming back is no new card.
             for (id, entry) in known ?? [:] where current[id] == nil { current[id] = entry }
-            for (id, card) in shown where current[id] == nil { current[id] = Entry(card: card, notify: false) }
+            for (id, card) in shown where current[id] == nil { current[id] = Entry(card: card, notify: false, notified: true) }
         }
         var changes = Changes(connection: connection)
         if let known {
-            changes.post = attention.items.filter { $0.notify && known[$0.id]?.card != $0.card }
+            changes.post = attention.items.filter { item in
+                item.notify && known[item.id].map { $0.card == item.card && $0.notified } != true
+            }
         }
         let posted = Set(changes.post.map(\.id))
         changes.withdraw = shown.filter { id, card in current[id].map { $0.card != card && !posted.contains(id) } ?? true }
@@ -158,7 +170,8 @@ struct AttentionNotifications {
     /// A post queued on `connection` is still due: same connection, the session still waits on this card, and it still
     /// notifies.
     func isCurrent(_ item: LinkAttention.Item, connection: Int) -> Bool {
-        connection == self.connection && known?[item.id] == Entry(card: item.card, notify: true) && shown[item.id] == item.card
+        connection == self.connection && known?[item.id].map { $0.card == item.card && $0.notify } == true
+            && shown[item.id] == item.card
     }
 }
 

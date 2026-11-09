@@ -95,11 +95,31 @@ final class AttentionTests: XCTestCase {
         _ = n.apply(summary())
         // Muted, or a question the assistant is still deciding on: listed, no notification.
         XCTAssertEqual(n.apply(summary(item("m", notify: false, muted: true), item("d", notify: false))).post, [])
-        // Notifying now with the same card: still no notification, it is not a new card.
-        XCTAssertEqual(n.apply(summary(item("m"), item("d"))).post, [])
-        XCTAssertEqual(n.apply(summary(item("m", card: "ix-2"), item("d"))).post.map(\.id), ["laptop/m#needs"])
         // `notify` decides, not `muted`.
-        XCTAssertEqual(n.apply(summary(item("m", card: "ix-2"), item("d"), item("x", muted: true))).post.map(\.id), ["laptop/x#needs"])
+        XCTAssertEqual(n.apply(summary(item("m", notify: false, muted: true), item("d", notify: false), item("x", muted: true)))
+            .post.map(\.id), ["laptop/x#needs"])
+    }
+
+    func testACardThatStartsToNotifyNotifiesOnceEvenWhenItWasListedBefore() {
+        // The assistant hands you the question it was deciding on: same card, `notify` turns true.
+        var n = AttentionNotifications()
+        _ = n.apply(summary(item("d", notify: false), item("b")))
+        let handed = n.apply(summary(item("d"), item("b")))
+        XCTAssertEqual(handed.post.map(\.id), ["laptop/d#needs"], "d notifies now; b was notifying in the baseline")
+        XCTAssertTrue(n.isCurrent(handed.post[0], connection: handed.connection))
+        XCTAssertEqual(n.apply(summary(item("d"), item("b"))).post, [], "the same summary again changes nothing")
+
+        // Muted and unmuted again, or a baseline card muted and unmuted: it notified on this connection already.
+        _ = n.apply(summary(item("d", notify: false, muted: true), item("b", notify: false, muted: true)))
+        let unmuted = n.apply(summary(item("d"), item("b")))
+        XCTAssertEqual(unmuted, .init(connection: unmuted.connection))
+        XCTAssertEqual(n.shown, ["laptop/d#needs": "ix-1"])
+
+        // Its notification from an earlier run is still shown: that counts as notified.
+        var restart = AttentionNotifications()
+        _ = restart.adopt([("laptop/d#needs", "ix-1")])
+        _ = restart.apply(summary(item("d", notify: false, muted: true)))
+        XCTAssertEqual(restart.apply(summary(item("d"))).post, [])
     }
 
     func testASessionBeyondACappedListKeepsItsNotificationAndDoesNotNotifyAgain() {
