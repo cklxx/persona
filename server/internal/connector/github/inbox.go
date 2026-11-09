@@ -36,6 +36,9 @@ type readMark struct {
 	// notified is the updated_at of the newest notification the thing came from. The thing's At is not always that:
 	// the CI follow-up moves it to later runs GitHub sent no notification of. Zero is unknown: nothing is inferred.
 	notified time.Time
+	// missing counts the list reads in a row the thing was missing from while that notification would have been in
+	// them (missedAgain).
+	missing int
 }
 
 var (
@@ -46,7 +49,8 @@ var (
 	contextMoves = 8                  // newest comments / reviews in a thing's context
 
 	notificationsPage    = 50 // unread notifications per page
-	maxNotificationPages = 5  // pages read per poll; past them the list is incomplete and nothing is marked read elsewhere
+	maxNotificationPages = 5  // pages read per poll; past them the list is incomplete (missedAgain)
+	readAfter            = 2  // list reads in a row a thing must be missing from to count as read on GitHub (readMark)
 )
 
 type notification struct {
@@ -100,7 +104,8 @@ func (c *Connector) poll(ctx context.Context) (time.Duration, bool, error) {
 		st.things, st.seen = map[string]*connector.InboxThing{}, map[string]string{}
 	}
 	hdr := http.Header{}
-	full := time.Since(st.fullAt) >= fullEvery
+	// A thing missing from the last list read is settled by the next one: read in full, not answered with a 304.
+	full := time.Since(st.fullAt) >= fullEvery || st.unsure()
 	if !full && st.lastModified != "" {
 		hdr.Set("If-Modified-Since", st.lastModified)
 	}
@@ -156,7 +161,7 @@ func (c *Connector) laterNotifications(ctx context.Context, ns []notification) (
 }
 
 // applyNotifications reads the threads that moved (at most maxDetails, none while requests run low or GitHub asks
-// for a pause) and marks those no longer in ns, the unread list newest first, as read elsewhere (readOnGitHub).
+// for a pause) and marks those no longer in ns, the unread list newest first, as read elsewhere (missedAgain).
 func (c *Connector) applyNotifications(ctx context.Context, ns []notification, complete bool, now time.Time) bool {
 	st := &c.inbox
 	me := c.Status(ctx).Account
@@ -171,23 +176,18 @@ func (c *Connector) applyNotifications(ctx context.Context, ns []notification, c
 	moved := false
 	o := c.options()
 	for _, n := range ns {
-		if o.muted(n.Repository.FullName) {
-			continue
-		}
 		kind, label := classify(n)
-		if kind == "" {
+		thread, run, parsed := threadOf(n), ciRun{}, false
+		if kind == "ci_failed" {
+			if run, parsed = parseCI(n.Subject.Title); parsed {
+				thread = ciThread(n.Repository.FullName, run.branch)
+			}
+		}
+		// Unread on GitHub, whatever the inbox makes of it below (a reason it leaves out, a muted repository).
+		unread[thread] = true
+		if kind == "" || o.muted(n.Repository.FullName) || kind == "ci_failed" && (!parsed || o.ignoredBranch(run.branch) || o.ci() == CIOff) {
 			continue
 		}
-		thread := threadOf(n)
-		var run ciRun
-		if kind == "ci_failed" {
-			var ok bool
-			if run, ok = parseCI(n.Subject.Title); !ok || o.ignoredBranch(run.branch) || o.ci() == CIOff {
-				continue
-			}
-			thread = ciThread(n.Repository.FullName, run.branch)
-		}
-		unread[thread] = true
 		stamp := n.UpdatedAt.UTC().Format(time.RFC3339)
 		st.mu.Lock()
 		known := st.seen[n.ID] == stamp
@@ -249,28 +249,47 @@ func (c *Connector) applyNotifications(ctx context.Context, ns []notification, c
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	for thread, t := range st.things {
-		switch {
-		case now.Sub(t.At) > forgetAfter:
+		if now.Sub(t.At) > forgetAfter {
 			delete(st.things, thread)
 			delete(st.marks, thread)
-		case !unread[thread] && !t.Read && t.Done == "" && st.readOnGitHub(thread, t, complete, oldest):
+			continue
+		}
+		if m := st.marks[thread]; m != nil && m.missedAgain(t, !unread[thread] && !t.Read && t.Done == "", complete, oldest) {
 			t.Read, moved = true, true
 		}
 	}
 	return moved
 }
 
-// readOnGitHub says whether thread's thing, missing from the unread list just read (newest first, oldest its oldest
-// notification), was read on GitHub: its own newest notification would have been in the list (the list is complete,
-// or that notification is newer than the oldest one read), and the thing is still that notification's move. A CI item
-// the follow-up moved to a later run is not: GitHub sent no notification of that run, so reading an earlier one says
-// nothing of it. st.mu is held.
-func (st *inboxState) readOnGitHub(thread string, t *connector.InboxThing, complete bool, oldest time.Time) bool {
-	m := st.marks[thread]
-	if m == nil || m.notified.IsZero() || t.At.After(m.notified) {
+// missedAgain counts the unread list just read (newest first; oldest is its oldest notification) for t, the thread's
+// thing, gone from it (not in it, nor read or done already), and says whether t now counts as read on GitHub: gone
+// from readAfter list reads in a row that would have had its own newest notification, being complete or reaching
+// past that notification. GitHub pages by offset, not from a snapshot: a notification read, or moved to the top by
+// new activity, while the poll is between pages shifts the rest, so one still unread can be on no page once (the next
+// poll reads the list in full at once: unsure). A thing the CI follow-up moved past its notification never counts:
+// GitHub sent no notification of the later run, so reading an earlier one says nothing of it. st.mu is held.
+func (m *readMark) missedAgain(t *connector.InboxThing, gone, complete bool, oldest time.Time) bool {
+	listed := complete || !oldest.IsZero() && m.notified.After(oldest)
+	if !gone || !listed || m.notified.IsZero() || t.At.After(m.notified) {
+		m.missing = 0
 		return false
 	}
-	return complete || !oldest.IsZero() && m.notified.After(oldest)
+	if m.missing++; m.missing < readAfter {
+		return false
+	}
+	m.missing = 0
+	return true
+}
+
+// unsure says whether a thing was missing from the last list read without counting as read yet (missedAgain). st.mu
+// is held.
+func (st *inboxState) unsure() bool {
+	for _, m := range st.marks {
+		if m.missing > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // tagsOf is what a notification's thing is about: its repository, who made the newest move (a person's PR / issue

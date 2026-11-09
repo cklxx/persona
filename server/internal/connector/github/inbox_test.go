@@ -146,7 +146,7 @@ func TestNotificationsBecomeThings(t *testing.T) {
 	}
 
 	// Answered: my comment is the newest; the review request withdrawn without a review: read; the issue is gone
-	// from the unread list: read elsewhere.
+	// from the unread list: read elsewhere, at the second read it is missing from (inbox_read_test.go).
 	f.notModified = false
 	c.inbox.fullAt = time.Time{}
 	f.comments["/repos/example-org/example-repo/issues/12/comments"] = `[{"user":{"login":"bob"},"body":"请看一下示例","created_at":"2026-11-02T08:59:00Z"},
@@ -157,8 +157,15 @@ func TestNotificationsBecomeThings(t *testing.T) {
 	if got["example-org/example-repo#12"].Done != connector.DoneReplied {
 		t.Errorf("answered: %+v", got["example-org/example-repo#12"])
 	}
-	if !got["example-org/example-repo#7"].Read {
+	if got["example-org/example-repo#7"].Read {
+		t.Errorf("read at the first list it is missing from: %+v", got["example-org/example-repo#7"])
+	}
+	c.poll(context.Background())
+	if got = things(t, c); !got["example-org/example-repo#7"].Read {
 		t.Errorf("no longer unread: %+v", got)
+	}
+	if since := f.sinceSeen[len(f.sinceSeen)-1]; since != "" {
+		t.Errorf("the read that settles #7 asked If-Modified-Since %q", since)
 	}
 }
 

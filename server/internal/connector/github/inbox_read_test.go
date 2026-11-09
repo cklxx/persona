@@ -48,6 +48,57 @@ func pollOnce(t *testing.T, c *Connector) {
 	}
 }
 
+// GitHub pages /notifications by offset, not from a snapshot: a notification read, or moved to the top by new
+// activity, while the poll is between pages shifts the rest, and one still unread can be on no page read. That is
+// no reason to call it read, and neither is a reason the inbox leaves out.
+func TestUnreadThingMissedByPagingStaysUnread(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	at := now.Add(-2 * time.Hour)
+	mine := note("7", "assign", "Issue", "https://api.github.com"+api7, stamp(at))
+	top := skipped(100, notificationsPage, now.Add(-time.Hour))                           // newer than #7
+	bottom := skipped(600, maxNotificationPages*notificationsPage, now.Add(-3*time.Hour)) // older than #7
+	readNewest := func(f *pagedNotifications) { f.list = f.list[1:] }                     // the user reads the newest one
+	for _, tc := range []struct {
+		name string
+		list []string
+		// afterPage1 changes the list once, right after the first page of the next poll is answered.
+		afterPage1 func(f *pagedNotifications)
+	}{
+		{"one read on page 1 while page 2 is read", cat(top, []string{mine}), readNewest},
+		{"the same with more unread than the pages read", cat(top, []string{mine}, bottom), readNewest},
+		{"moved to page 1 while page 2 is read", cat(top, []string{mine}), func(f *pagedNotifications) {
+			f.list = cat([]string{note("7", "assign", "Issue", "https://api.github.com"+api7, stamp(now.Add(-time.Minute)))}, top)
+		}},
+		{"its notification now has a reason the inbox leaves out",
+			cat(top[:3], []string{note("7", "subscribed", "Issue", "https://api.github.com"+api7, stamp(now.Add(-time.Minute)))}), nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &pagedNotifications{list: []string{mine}}
+			c := f.server(t)
+			pollOnce(t, c)
+			if th, ok := things(t, c)["example-org/example-repo#7"]; !ok || th.Read {
+				t.Fatalf("first poll: %+v", things(t, c))
+			}
+			f.mu.Lock()
+			f.list = tc.list
+			once := tc.afterPage1
+			f.served = func(page int) {
+				if page == 1 && once != nil {
+					once(f)
+					once = nil
+				}
+			}
+			f.mu.Unlock()
+			for poll := range 3 {
+				pollOnce(t, c)
+				if th, ok := things(t, c)["example-org/example-repo#7"]; !ok || th.Read {
+					t.Fatalf("poll %d: #7 still unread on GitHub is in the inbox %v, read %v", poll+1, ok, th.Read)
+				}
+			}
+		})
+	}
+}
+
 // A CI item the follow-up moved to a later failed run (someone else's push: GitHub sent no notification of it) is
 // not read because its own notification fell past the pages read, nor because that notification was read: the later
 // run is news. A read item the follow-up moves is unread again.

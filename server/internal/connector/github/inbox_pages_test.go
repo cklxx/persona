@@ -137,13 +137,14 @@ func knownIssue(t *testing.T, f *pagedNotifications, list []string) *Connector {
 	return c
 }
 
-// A thing is read elsewhere only when it is missing from the whole unread list, not just from its first page.
+// A thing is read elsewhere only when it is missing from the whole unread list, not just from its first page, and at
+// the second list read in a row it is missing from: the first could be GitHub's paging (inbox_read_test.go).
 func TestNotificationPages(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		list     []string
 		failPage int
-		pages    int  // notifications pages the poll reads
+		pages    int  // notifications pages a poll reads
 		read     bool // #7 marked read elsewhere
 	}{
 		{"still unread on page 2", append(newer(notificationsPage), issue7), 0, 2, false},
@@ -158,22 +159,28 @@ func TestNotificationPages(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &pagedNotifications{failPage: tc.failPage}
 			c := knownIssue(t, f, tc.list)
-			if _, _, err := c.poll(context.Background()); err != nil {
-				t.Fatalf("poll: %v", err)
-			}
-			if th, ok := things(t, c)["example-org/example-repo#7"]; !ok || th.Read != tc.read {
-				t.Errorf("#7: in the inbox %v, read %v, want read %v", ok, th.Read, tc.read)
-			}
-			f.mu.Lock()
-			defer f.mu.Unlock()
-			if len(f.pages) != tc.pages {
-				t.Errorf("pages read: %v, want %d", f.pages, tc.pages)
-			}
-			for i, page := range f.pages {
-				if page != i+1 || (f.since[i] != "") != (i == 0) { // only the first page asks If-Modified-Since
-					t.Errorf("pages %v, If-Modified-Since %q", f.pages, f.since)
-					break
+			for poll := 1; poll <= readAfter; poll++ {
+				if _, _, err := c.poll(context.Background()); err != nil {
+					t.Fatalf("poll %d: %v", poll, err)
 				}
+				want := tc.read && poll == readAfter
+				if th, ok := things(t, c)["example-org/example-repo#7"]; !ok || th.Read != want {
+					t.Errorf("poll %d: #7: in the inbox %v, read %v, want read %v", poll, ok, th.Read, want)
+				}
+				f.mu.Lock()
+				if len(f.pages) != tc.pages {
+					t.Errorf("poll %d: pages read: %v, want %d", poll, f.pages, tc.pages)
+				}
+				for i, page := range f.pages {
+					// Only the first page asks If-Modified-Since, and not right after #7 went missing: that read settles it.
+					since := i == 0 && !(tc.read && poll > 1)
+					if page != i+1 || (f.since[i] != "") != since {
+						t.Errorf("poll %d: pages %v, If-Modified-Since %q", poll, f.pages, f.since)
+						break
+					}
+				}
+				f.pages, f.since = nil, nil
+				f.mu.Unlock()
 			}
 		})
 	}
