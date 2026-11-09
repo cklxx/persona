@@ -24,15 +24,23 @@ func (w fullSendBuffer) Write([]byte) (int, error) {
 	return 0, errors.New("connection closed")
 }
 
-// rosterLog is a manager that takes every write, each after delay, and keeps the managers events it got.
+// rosterLog is a manager that keeps the managers events it got. With a gate, a write first says it started (started)
+// and then returns only once the gate is closed: a slow connection the test lets through when it chooses.
 type rosterLog struct {
-	delay time.Duration
-	mu    sync.Mutex
-	lists [][]busManagerBrief
+	gate    chan struct{}
+	started chan struct{}
+	mu      sync.Mutex
+	lists   [][]busManagerBrief
 }
 
 func (l *rosterLog) Write(b []byte) (int, error) {
-	time.Sleep(l.delay)
+	if l.gate != nil {
+		select {
+		case l.started <- struct{}{}:
+		default:
+		}
+		<-l.gate
+	}
 	var m struct {
 		Event  string
 		Params struct{ Managers []busManagerBrief }
@@ -55,13 +63,22 @@ func (l *rosterLog) got() [][]busManagerBrief {
 }
 
 // rosterConn makes w the current connection of manager id.
-func rosterConn(h *Hub, id string, w interface{ Write([]byte) (int, error) }) {
+func rosterConn(h *Hub, id string, w interface{ Write([]byte) (int, error) }) *busConn {
 	h.bus.mu.Lock()
 	defer h.bus.mu.Unlock()
 	if h.bus.current == nil {
 		h.bus.current = map[string]*busConn{}
 	}
-	h.bus.current[id] = &busConn{ident: db.BusIdentity{ID: id, Role: bus.RoleManager}, peer: rpc.New("h", w)}
+	c := &busConn{ident: db.BusIdentity{ID: id, Role: bus.RoleManager}, peer: rpc.New("h", w)}
+	h.bus.current[id] = c
+	return c
+}
+
+// rosterIdle: c's roster sender has written the newest list and ended, so nothing more is on its way to c.
+func rosterIdle(c *busConn) bool {
+	c.roster.mu.Lock()
+	defer c.roster.mu.Unlock()
+	return !c.roster.sending
 }
 
 // A manager whose connection stopped taking writes holds up neither the roster for the others nor the caller: the
@@ -75,7 +92,7 @@ func TestRosterReachesTheOthersPastAStalledManager(t *testing.T) {
 		rosterConn(h, fmt.Sprintf("m-stalled%d", i), stalled)
 	}
 	healthy := &rosterLog{}
-	rosterConn(h, "m-healthy", healthy)
+	hc := rosterConn(h, "m-healthy", healthy)
 
 	done := make(chan struct{})
 	go func() {
@@ -87,47 +104,55 @@ func TestRosterReachesTheOthersPastAStalledManager(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("busRosterChanged waited on a manager whose connection takes no writes")
 	}
-	eventually(t, 2*time.Second, "the healthy manager got the roster", func() bool { return len(healthy.got()) > 0 })
-	time.Sleep(50 * time.Millisecond) // nothing more on the way
+	eventually(t, 2*time.Second, "the healthy manager's roster sender ended", func() bool { return rosterIdle(hc) })
 	if n := len(healthy.got()); n != 1 {
 		t.Fatalf("the healthy manager got %d managers events, want 1", n)
 	}
 }
 
-// Roster changes in quick succession reach a slow manager in order: it ends with the newest list and never gets an
-// older one after a newer one. Each change here adds an identity, so a newer list is a longer one.
+// Roster changes made while a slow manager's first list is still being written do not wait for it. Once that write
+// returns, the manager gets the newest list only, never an older one after a newer one. Each change here adds an
+// identity, so a newer list is a longer one.
 func TestRosterChangesReachASlowManagerInOrder(t *testing.T) {
 	h := newTestHub(t)
 	idents := &memIdents{}
 	h.bus.idents = idents
-	slow := &rosterLog{delay: 200 * time.Millisecond}
-	rosterConn(h, "m-slow", slow)
+	slow := &rosterLog{gate: make(chan struct{}), started: make(chan struct{}, 1)}
+	var open sync.Once
+	letThrough := func() { open.Do(func() { close(slow.gate) }) }
+	t.Cleanup(letThrough)
+	sc := rosterConn(h, "m-slow", slow)
 	ctx := context.Background()
 	const changes = 6
-	start := time.Now()
-	for i := range changes {
+	change := func(i int) {
 		if err := idents.SaveBusIdentity(ctx, db.BusIdentity{ID: fmt.Sprintf("m-%d", i), Role: bus.RoleManager}, fmt.Sprint(i)); err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
 		h.busRosterChanged(ctx, nil)
 	}
-	if d := time.Since(start); d > time.Second {
-		t.Fatalf("%d roster changes took %s: they waited on the slow manager", changes, d)
-	}
-	eventually(t, 3*time.Second, "the slow manager got the newest roster", func() bool {
-		got := slow.got()
-		return len(got) > 0 && len(got[len(got)-1]) == changes
-	})
-	time.Sleep(2 * slow.delay) // nothing older on the way behind it
-	got := slow.got()
-	var sizes []string
-	for i, list := range got {
-		sizes = append(sizes, fmt.Sprint(len(list)))
-		if i > 0 && len(list) <= len(got[i-1]) {
-			t.Fatalf("the slow manager got an older roster after a newer one: sizes %s", strings.Join(sizes, ","))
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		change(0)
+		<-slow.started // the first list is being written, and that write does not return yet
+		for i := 1; i < changes; i++ {
+			change(i)
 		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("%d roster changes waited on the slow manager", changes)
 	}
-	if last := got[len(got)-1]; len(last) != changes {
-		t.Fatalf("the slow manager ended with %d managers, want %d (sizes %s)", len(last), changes, strings.Join(sizes, ","))
+
+	letThrough()
+	eventually(t, 5*time.Second, "the slow manager's roster sender ended", func() bool { return rosterIdle(sc) })
+	var sizes []string
+	for _, list := range slow.got() {
+		sizes = append(sizes, fmt.Sprint(len(list)))
+	}
+	// The first list, then the newest: the ones in between were replaced while the first was being written.
+	if got, want := strings.Join(sizes, ","), fmt.Sprintf("1,%d", changes); got != want {
+		t.Fatalf("the slow manager got lists of sizes %s, want %s", got, want)
 	}
 }
