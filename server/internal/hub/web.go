@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"embed"
+	"errors"
 	"io"
 	"io/fs"
 	"mime"
@@ -119,7 +120,8 @@ func isFile(site fs.FS, name string) bool {
 
 // serveStored serves the asset name that site keeps as name + webasset.Suffix. A request gzipResponses would
 // compress (gzipWanted) gets the stored bytes, marked as gzip, which gzipResponses then passes on as they are. Any
-// other (no gzip, HEAD, a range) gets them decompressed, the same answer as for the plain file.
+// other (no gzip, HEAD, a range) gets them decompressed as they are read (gunzipSeeker), the same answer as for the
+// plain file.
 func serveStored(w http.ResponseWriter, r *http.Request, site fs.FS, name string) {
 	f, err := site.Open(name + webasset.Suffix)
 	if err != nil {
@@ -142,17 +144,79 @@ func serveStored(w http.ResponseWriter, r *http.Request, site fs.FS, name string
 		http.ServeContent(w, r, path.Base(name), st.ModTime(), rs)
 		return
 	}
-	zr, err := gzip.NewReader(rs)
-	var plain []byte
-	if err == nil {
-		plain, err = io.ReadAll(zr) // to the end: the checksum is checked there
-	}
+	plain, err := newGunzipSeeker(rs)
 	if err != nil { // a broken build; not to be kept for a year by a cache
 		w.Header().Del("Cache-Control")
 		http.Error(w, "broken asset", http.StatusInternalServerError)
 		return
 	}
-	http.ServeContent(w, r, path.Base(name), st.ModTime(), bytes.NewReader(plain))
+	http.ServeContent(w, r, path.Base(name), st.ModTime(), plain)
+}
+
+// gunzipSeeker reads a gzip file's content as http.ServeContent reads a file: its size comes from the gzip trailer
+// (ISIZE, which gzip.Reader checks at the end), so a HEAD decompresses nothing, a GET as it is sent, and a range only
+// up to its end. A seek back starts decompressing again from the top.
+type gunzipSeeker struct {
+	src       io.ReadSeeker // the gzip bytes
+	zr        *gzip.Reader
+	size      int64
+	pos, want int64 // where zr is, where the next Read starts
+}
+
+func newGunzipSeeker(src io.ReadSeeker) (*gunzipSeeker, error) {
+	var trailer [4]byte
+	if _, err := src.Seek(-int64(len(trailer)), io.SeekEnd); err != nil {
+		return nil, err
+	}
+	if _, err := io.ReadFull(src, trailer[:]); err != nil {
+		return nil, err
+	}
+	if _, err := src.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	zr, err := gzip.NewReader(src) // reads and checks the header
+	if err != nil {
+		return nil, err
+	}
+	size := int64(trailer[0]) | int64(trailer[1])<<8 | int64(trailer[2])<<16 | int64(trailer[3])<<24
+	return &gunzipSeeker{src: src, zr: zr, size: size}, nil
+}
+
+func (g *gunzipSeeker) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekCurrent:
+		offset += g.want
+	case io.SeekEnd:
+		offset += g.size
+	}
+	if offset < 0 {
+		return 0, errors.New("gunzipSeeker: negative position")
+	}
+	g.want = offset
+	return offset, nil
+}
+
+func (g *gunzipSeeker) Read(p []byte) (int, error) {
+	if g.want < g.pos { // back: from the top again
+		if _, err := g.src.Seek(0, io.SeekStart); err != nil {
+			return 0, err
+		}
+		if err := g.zr.Reset(g.src); err != nil {
+			return 0, err
+		}
+		g.pos = 0
+	}
+	if g.want > g.pos {
+		n, err := io.CopyN(io.Discard, g.zr, g.want-g.pos)
+		g.pos += n
+		if err != nil {
+			return 0, err
+		}
+	}
+	n, err := g.zr.Read(p)
+	g.pos += int64(n)
+	g.want = g.pos
+	return n, err
 }
 
 // serveIndex serves index.html with its <base> at the sub-path a reverse proxy serves the hub under (docs/web/web.md "Sub-path"):

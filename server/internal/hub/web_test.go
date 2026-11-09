@@ -215,7 +215,7 @@ func TestWebAppServesPrecompressedAssetsAsThePlainFiles(t *testing.T) {
 	plain := fstest.MapFS{
 		"index.html":              {Data: []byte("<html>" + strings.Repeat("<p>app</p>", 200) + "</html>")},
 		"sw.js":                   {Data: []byte(js)},
-		"assets/App-1.js":         {Data: []byte(js)},
+		"assets/App-1.js":         {Data: []byte(strings.Repeat(js, 25))}, // past io.Copy's 32 KB buffer
 		"assets/styles-2.css":     {Data: []byte(strings.Repeat("a{color:red}\n", 200))},
 		"assets/icon-3.png":       {Data: append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0, 1, 2, 3}, 600)...)},
 		"assets/small-4.js":       {Data: []byte("export {};")},
@@ -238,6 +238,7 @@ func TestWebAppServesPrecompressedAssetsAsThePlainFiles(t *testing.T) {
 		{"gzip;q=0", "GET", map[string]string{"Accept-Encoding": "gzip;q=0, br"}},
 		{"HEAD", "HEAD", map[string]string{"Accept-Encoding": browser}},
 		{"Range", "GET", map[string]string{"Accept-Encoding": browser, "Range": "bytes=10-99"}},
+		{"suffix Range", "GET", map[string]string{"Range": "bytes=-50"}},
 		{"If-Modified-Since", "GET", map[string]string{"Accept-Encoding": browser, "If-Modified-Since": "Mon, 02 Jan 2006 15:04:05 GMT"}},
 	}
 	paths := []string{"/assets/App-1.js", "/assets/styles-2.css", "/assets/icon-3.png", "/assets/small-4.js", "/",
