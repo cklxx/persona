@@ -63,7 +63,7 @@ WebSocket ──decode (background thread)──▶ AppModel.handle(_:) (main th
 - `rev`: the chat grew, but nothing on screen changed (most pushes on the real hub are like this);
 - `last`: an Agent's last line changed.
 
-Only views instrumented with `PerfTrace.body` are counted; `List` cells and system controls aren't included. Both layouts:
+Only views instrumented with `PerfTrace.body` are counted; `List` cells and system controls aren't included.
 
 | Page | One `rev` | One `last` | Views recomputed |
 | --- | --- | --- | --- |
@@ -239,7 +239,7 @@ Display-only clocks and decorative frames run only while mounted, scroll-visible
   - keep the same reader row until the user scrolls: choosing the center row again for every consecutive reorder can select a neighbor and drag the list away.
 - Don't preserve it at the very top: new arrivals should be visible there. Don't preserve it with a finger down or while sliding either (only critical updates land then, above).
 - Why (#339): after reordering, `List` preserves scroll offset, not content. Earlier spaces change rank and the reader's whole screen becomes a different space; the order is true, but what they were reading is gone.
-- Test: `LiveUpdateTests.testScrolledListHoldsStillThroughUpdates` prints `TRUTH reader row moved … pt`; both layouts must stay within 2 pt.
+- Test: `LiveUpdateTests.testScrolledListHoldsStillThroughUpdates` prints `TRUTH reader row moved … pt`; the row must stay within 2 pt.
 
 ### Visible staleness
 
@@ -302,7 +302,7 @@ Reading it:
 ## Back to latest: chat-page "follow latest"
 
 Agent chats and Persona chats share one `ChatView`: an inverted list (latest at offset 0), with the bottom-right ↓ ("Jump to Latest") and "follow latest" handled here.
-`ScrollToBottomTests` checks the cases below in both layouts; each records a `probe.chat-rows` timeline (↓, follow mode, withholding, near latest, distance from latest, finger) and asserts what the user should see.
+`ScrollToBottomTests` checks the cases below; each records a `probe.chat-rows` timeline (↓, follow mode, withholding, near latest, distance from latest, finger) and asserts what the user should see.
 The behavior before #1046 (several separate truths), its measurements and the plan compared with Vercel `useScrollToBottom` are in the archive record.
 
 ### Cases
