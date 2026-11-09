@@ -1,8 +1,11 @@
 package hub
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
+
+	"github.com/nwverse/persona/server/internal/i18n"
 )
 
 // TestExtensionOperationRelay: a manager's extension_operation reaches only the apps that declared
@@ -35,5 +38,30 @@ func TestExtensionOperationRelay(t *testing.T) {
 	}
 	if len(old.out) != 1 {
 		t.Fatal("another broadcast does not reach an older app")
+	}
+}
+
+// TestExtensionOperationPerLanguage: with several apps on each language, every app gets the operation byte for byte
+// as localizing it for that app alone gives.
+func TestExtensionOperationPerLanguage(t *testing.T) {
+	h := newTestHub(t)
+	langs := []i18n.Lang{i18n.En, i18n.ZhHans, i18n.Ja, i18n.En, i18n.ZhHans}
+	clients := make([]*client, len(langs))
+	for i, l := range langs {
+		clients[i] = &client{hub: h, out: make(chan []byte, 4), acceptLang: l, urlFeatures: map[string]bool{extensionOperationsFeature: true}}
+		h.clients[clients[i]] = struct{}{}
+	}
+	b := []byte(`{"type":"extension_operation","operation":{"id":"op1","kind":"install","error":"SDK error: invalid package","steps":[{"id":"nodes","machines":{"errors":{"example-machine":"SSH diagnostic: refused"}}}]}}`)
+	h.toWanting(extensionOperationsFeature, b)
+	for i, c := range clients {
+		if len(c.out) != 1 {
+			t.Fatalf("%s: %d messages", langs[i], len(c.out))
+		}
+		if got, want := <-c.out, i18n.ExtensionEvent(langs[i], b); !bytes.Equal(got, want) {
+			t.Fatalf("%s:\n got %s\nwant %s", langs[i], got, want)
+		}
+	}
+	if bytes.Equal(i18n.ExtensionEvent(i18n.En, b), i18n.ExtensionEvent(i18n.ZhHans, b)) {
+		t.Fatal("the fixture reads the same in every language: it pins nothing")
 	}
 }
