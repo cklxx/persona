@@ -8,6 +8,10 @@
     python3 scripts/privacy_check.py --range origin/<base>..<head> --message <file>   # plus text recorded as it is,
                                                      # every line (merge-pr.sh: the PR's title and body, the squash message)
 
+Every mode reads what Git records: a symlink is scanned as its link text, never the file it points to; --staged and
+--range take added, copied, modified, renamed and type-changed files (a file turned into a symlink); the tracked-files
+scan reads a tracked file the worktree lacks (sparse checkout, skip-worktree, deleted but not staged) from the index.
+
 What counts as private comes from this machine, never from the repo: the values of ~/.config/persona/config.json
 (hosts, hub address, machine names, Apple ids, emails), ~/.config/persona/private-words.txt (one word per line:
 internal project names, people, anything else) and CLAUDE.local.md's `code spans`. On top of that, any private IPv4
@@ -617,19 +621,24 @@ def main():
     words = list(sources)
     modules = module_paths()
     if staged:
-        files = git("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z").decode().split("\0")
+        files = git("diff", "--cached", "--name-only", "--diff-filter=ACMRT", "-z").decode().split("\0")
     elif span:
-        files = git("diff", "--name-only", "--diff-filter=ACMR", "-z", span[0], span[1]).decode().split("\0")
+        files = git("diff", "--name-only", "--diff-filter=ACMRT", "-z", span[0], span[1]).decode().split("\0")
     else:
         files = git("ls-files", "-z").decode().split("\0")
     files = list(filter(None, files))
-    snapshots = {}
     if staged or span:
+        from_git = [name for name in files if name not in SKIP_FILES]
+    else:
+        # Tracked files the worktree lacks (sparse checkout, skip-worktree, deleted but not staged): the index's copy.
+        from_git = [name for name in files if name not in SKIP_FILES and not os.path.lexists(os.path.join(ROOT, name))]
+    snapshots = {}
+    if from_git:
         try:
-            snapshots = git_file_data([name for name in files if name not in SKIP_FILES],
-                                      ":" if staged else span[1] + ":")
+            snapshots = git_file_data(from_git, span[1] + ":" if span and not staged else ":")
         except (OSError, ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
             sys.exit("privacy_check: cannot read Git objects; scan did not complete")
+    from_git = set(from_git)
     bad, hit = [], set()
 
     def report(f, where, w):
@@ -643,13 +652,16 @@ def main():
             report(f, "path", w)
         if f in SKIP_FILES:
             continue
+        path = os.path.join(ROOT, f)
         try:
-            if staged or span:
+            if f in from_git:
                 data = snapshots.get(f)
                 if data is None:
                     continue
+            elif os.path.islink(path):
+                data = os.fsencode(os.readlink(path))  # the link text git records, never the file it points to
             else:
-                data = open(os.path.join(ROOT, f), "rb").read()
+                data = open(path, "rb").read()
         except (OSError, subprocess.CalledProcessError):
             continue
         npm_lock = os.path.basename(f) in NPM_LOCK_FILES
