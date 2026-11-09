@@ -177,7 +177,7 @@ nonisolated enum PushCrypto {
         }
         switch aps["sound"] {
         case nil: content.sound = nil
-        case let name as String: content.sound = name == "default" ? .default : UNNotificationSound(named: UNNotificationSoundName(name))
+        case is String: content.sound = .default // the hub sends only "default" (named sounds don't exist on watchOS)
         default: break // a critical-alert dictionary: the hub sends none, so the fallback's stays
         }
         // The service extension removes the sealed marker; only authenticated payload fields may reach app routing.
