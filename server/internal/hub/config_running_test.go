@@ -107,7 +107,7 @@ func TestLoadConfigAddsTheTokenAsAnEdit(t *testing.T) {
 	}
 	entries, _ := os.ReadDir(filepath.Dir(path))
 	for _, e := range entries {
-		if e.Name() != "hub.json" && e.Name() != ".lock" { // .lock: lockDir on Windows
+		if e.Name() != "hub.json" && e.Name() != ".lock" { // .lock: managerconf.LockDir on Windows
 			t.Fatalf("left behind: %s", e.Name())
 		}
 	}

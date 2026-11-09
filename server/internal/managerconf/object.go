@@ -190,7 +190,7 @@ func editIf(path string, edit func(o *Object) (bool, error)) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	unlock, err := lockDir(dir)
+	unlock, err := LockDir(dir)
 	if err != nil {
 		return err
 	}

@@ -114,7 +114,7 @@ func editHubJSON(dir string, edit func(o *jsonObject) error) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	unlock, err := lockDir(dir)
+	unlock, err := managerconf.LockDir(dir)
 	if err != nil {
 		return err
 	}
