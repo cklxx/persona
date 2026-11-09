@@ -161,6 +161,22 @@ func (n *Node) claudeSessions(procs []claudeProc, seen map[string]bool) []proto.
 			Model: m.model, LastText: snippet(m.lastText), UpdatedAt: lastUsed(m, st), Rev: st.Size(), AgentSurface: m.surface,
 		}
 		s.Capabilities, s.ReadOnlyReason = outsideCapabilities(c)
+		// A claude in a tmux pane says where it runs ("tmux":"orc:@11.%11") and no hooks of Persona's run there: the
+		// pane's screen is what its approval shows on, so it gets that screen and the keys into it (#2562).
+		if pane := outsidePane(c); pane != "" {
+			s.PaneID = pane
+			if s.Capabilities == nil {
+				s.Capabilities = &proto.SessionCapabilities{Read: true}
+			}
+			s.Capabilities.Terminal = true
+			// Its own status file says waiting when a dialog has the keyboard, but a build that does not: a resting
+			// claude's screen is read, as for a pane (dialogstatus.go).
+			if status == proto.StatusIdle || status == proto.StatusDone || status == proto.StatusUnknown {
+				if head := n.dialogOn(id, pane); head != "" {
+					s.Status, s.AttentionReason = proto.StatusBlocked, head
+				}
+			}
+		}
 		if status == proto.StatusBlocked {
 			s.AttentionReason = proto.AttentionClaudeComputer
 		}
@@ -202,6 +218,20 @@ func outsideCapabilities(c claudeProc) (*proto.SessionCapabilities, string) {
 		return &proto.SessionCapabilities{Read: true}, proto.ReadOnlyClaudeNoInbox
 	}
 	return &proto.SessionCapabilities{Read: true}, proto.ReadOnlyClaudeInbox
+}
+
+// outsidePane is the tmux pane an outside claude runs in, "" when it runs in none (#2562): Claude Code writes it down
+// in its own session file, so no process environment is read for it.
+func outsidePane(c claudeProc) string { return tmuxPaneOf(c.Tmux) }
+
+// outsidePaneOf is the tmux pane a session outside Persona's panes runs in, "" for any other session: where a card's
+// answer goes when no host lists an agent for it (send.go paneFor, panescreen.go screen).
+func (n *Node) outsidePaneOf(id string) string {
+	c, ok := n.outsideClaude(id)
+	if !ok {
+		return ""
+	}
+	return outsidePane(c)
 }
 
 // outsideClaude is the live claude outside Persona's panes that has session id open (outsideSource), ok false when
