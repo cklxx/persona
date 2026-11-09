@@ -54,9 +54,9 @@ type savedEventLog struct {
 func newEventLog() *eventLog { return &eventLog{stream: randomHex(8)} }
 
 // stampEvent puts "event_seq" first in the JSON object b. The log owns that key: if b already has one at its top level
-// (a manager's ws.broadcast and a node's hook.event pass on what the sender put there), it is taken out first. Otherwise
-// the apps would get the key twice and, as they read a repeated key's last value, take the sender's number for their
-// resume cursor.
+// (a node's hook.event passes on what the sender put there; relayBroadcastFrom takes a manager's out itself, as an
+// extension_operation does not come through here), it is taken out first. Otherwise the apps would get the key twice
+// and, as they read a repeated key's last value, take the sender's number for their resume cursor.
 func stampEvent(b []byte, seq int64) []byte {
 	if len(b) < 2 || b[0] != '{' {
 		return b

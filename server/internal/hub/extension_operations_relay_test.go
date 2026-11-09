@@ -65,3 +65,32 @@ func TestExtensionOperationPerLanguage(t *testing.T) {
 		t.Fatal("the fixture reads the same in every language: it pins nothing")
 	}
 }
+
+// TestExtensionOperationCarriesNoEventSeq: an extension_operation skips the event log, so stampEvent never sees it, yet
+// the apps read event_seq from every message but hello for their resume cursor. A manager's own top-level one is taken
+// out on this path too; one deeper down is the operation's own field and stays.
+func TestExtensionOperationCarriesNoEventSeq(t *testing.T) {
+	h := newTestHub(t)
+	app := &client{hub: h, out: make(chan []byte, 4), urlFeatures: map[string]bool{extensionOperationsFeature: true}}
+	h.clients[app] = struct{}{}
+	if err := h.relayBroadcast(json.RawMessage(`{"event_seq":999999,"type":"extension_operation","operation":{"event_seq":5,"id":"op1"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(app.out) != 1 {
+		t.Fatalf("%d messages, want 1", len(app.out))
+	}
+	got := <-app.out
+	if seqs := topLevel(t, got, "event_seq"); len(seqs) != 0 {
+		t.Fatalf("the app got %s: top-level event_seq %v, want none", got, seqs)
+	}
+	var m struct {
+		Type      string `json:"type"`
+		Operation struct {
+			EventSeq int    `json:"event_seq"`
+			ID       string `json:"id"`
+		} `json:"operation"`
+	}
+	if err := json.Unmarshal(got, &m); err != nil || m.Type != "extension_operation" || m.Operation.ID != "op1" || m.Operation.EventSeq != 5 {
+		t.Fatalf("the app got %s (%v)", got, err)
+	}
+}
