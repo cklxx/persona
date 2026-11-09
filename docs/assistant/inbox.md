@@ -219,7 +219,8 @@ Triage, drafting, AI twin, done state, and retention use hub's generic logic.
   The time compared is the notification's `updated_at`, kept apart from the thing's time: a CI item the follow-up moved to a later run (GitHub sent no notification of it) is never inferred read, and that run makes a read item unread again (#2149).
   With under one tenth of request quota remaining, poll notifications only and show "Request quota nearly exhausted."
   A rate limit (429, or 403 for a secondary limit or a used-up hour) on any GitHub request pauses the background reads, the poll included: until `Retry-After`; without it, until `X-RateLimit-Reset` only when the hour is used up (`X-RateLimit-Remaining: 0`),
-  otherwise for a minute, doubling up to an hour while the limit comes back right after a pause. The poll waits it out instead of failing, so the watch is not restarted early.
+  otherwise for a minute, doubling up to an hour only while requests keep failing: the limit comes back within one step of the end of the last such pause, with no request answered since (a pause GitHub named is not a step).
+  A pause also stops the notification pages still to read. The poll waits it out instead of failing, so the watch is not restarted early.
 - Included `reason`: PRs requesting my review (`review_requested`), mentions (`mention`), team mentions (`team_mention`), new comments / reviews by others on my PRs / issues (`author`),
   CI results (`ci_activity`), assignments (`assign`). Others (`subscribed`, `comment`, `state_change`…) are excluded. One item per PR / issue (`example-org/example-repo#12`).
 - **Noise reduction (2026-11-03, #577)**: the user found it too noisy. A read-only hub count showed all 52 open GitHub items as Needs you, including 42 CI failures on feature / automatic branches (many pushed by Agents using the user's account),

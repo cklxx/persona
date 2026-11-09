@@ -168,7 +168,7 @@ func TestPauseBacksOff(t *testing.T) {
 	}
 	ended := func(ago time.Duration) {
 		c.mu.Lock()
-		c.pausedUntil = time.Now().Add(-ago)
+		c.pausedUntil, c.backoffUntil = time.Now().Add(-ago), time.Now().Add(-ago)
 		c.mu.Unlock()
 	}
 	near := func(got, want time.Duration) bool { return got > want-2*time.Second && got <= want }
@@ -194,5 +194,53 @@ func TestPauseBacksOff(t *testing.T) {
 	ended(2 * time.Hour)
 	if got := limit(); !near(got, time.Minute) {
 		t.Fatalf("long after the last pause: %s, want a minute", got)
+	}
+}
+
+// The backoff doubles only while the limit keeps coming back right after a pause it chose itself (#2149): a pause
+// GitHub named (Retry-After) is not one of its steps, and three quiet hours end it.
+func TestPauseBackoffIgnoresGitHubsPauses(t *testing.T) {
+	c := healthyGitHub(t)
+	c.mu.Lock()
+	c.pauseStep, c.pausedUntil = time.Hour, time.Now().Add(-3*time.Hour) // the step reached an hour, three quiet hours ago
+	c.mu.Unlock()
+	c.notePause(retryAfter("60"), secondaryLimit)
+	c.mu.Lock()
+	c.pausedUntil = time.Now().Add(-time.Second) // GitHub's pause ended a second ago
+	c.mu.Unlock()
+	c.notePause(http.Header{}, secondaryLimit)
+	if left := c.pauseLeft(); left < time.Minute-2*time.Second || left > time.Minute {
+		t.Fatalf("a limit without Retry-After after three quiet hours pauses for %s, want a minute", left)
+	}
+}
+
+// A request answered after the pause ends the backoff: the next limit pauses for a minute again. One answered during
+// the pause (a read the pause does not hold back) does not.
+func TestPauseBackoffEndsWithAGoodAnswer(t *testing.T) {
+	c := healthyGitHub(t)
+	answered := func() {
+		var u struct{ Login string }
+		if _, err := c.Get(context.Background(), "/user", &u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ended := func() {
+		c.mu.Lock()
+		c.pausedUntil = time.Now().Add(-time.Second)
+		c.mu.Unlock()
+	}
+	near := func(got, want time.Duration) bool { return got > want-2*time.Second && got <= want }
+	c.notePause(http.Header{}, secondaryLimit)
+	answered() // during the pause
+	ended()
+	c.notePause(http.Header{}, secondaryLimit)
+	if got := c.pauseLeft(); !near(got, 2*time.Minute) {
+		t.Fatalf("again right after the pause, an answer during it aside: %s, want 2m", got)
+	}
+	ended()
+	answered() // after the pause: the limit is gone
+	c.notePause(http.Header{}, secondaryLimit)
+	if got := c.pauseLeft(); !near(got, time.Minute) {
+		t.Fatalf("a limit after a good answer pauses for %s, want a minute", got)
 	}
 }

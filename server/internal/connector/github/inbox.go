@@ -147,10 +147,13 @@ func notificationsPath(page int) string {
 // laterNotifications reads the pages after the first one, ns, while they come full, up to maxNotificationPages, and
 // says whether the list is complete (it ended on a short page). A page that fails ends the list incomplete without
 // an error: what was read still counts, and the next poll reads again; a rate limit is recorded (request) and
-// holds back the threads' details too.
+// holds back the threads' details too. So does a pause another read recorded meanwhile: no page is asked for in it.
 func (c *Connector) laterNotifications(ctx context.Context, ns []notification) ([]notification, bool) {
 	batch := len(ns)
 	for page := 2; page <= maxNotificationPages && batch == notificationsPage; page++ {
+		if c.pauseLeft() > 0 {
+			return ns, false
+		}
 		var more []notification
 		if _, _, err := c.request(ctx, http.MethodGet, notificationsPath(page), nil, nil, &more); err != nil {
 			return ns, false

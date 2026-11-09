@@ -237,3 +237,23 @@ func TestNotificationsRateLimitMidPoll(t *testing.T) {
 		})
 	}
 }
+
+// A pause another read records while the poll is between pages stops the pages still to read (#2149).
+func TestNotificationPagesStopForAPause(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	f := &pagedNotifications{list: skipped(100, maxNotificationPages*notificationsPage+1, now.Add(-time.Hour))}
+	c := f.server(t)
+	f.mu.Lock()
+	f.served = func(page int) {
+		if page == 2 {
+			c.notePause(retryAfter("600"), secondaryLimit) // a thread's details ran into a secondary limit meanwhile
+		}
+	}
+	f.mu.Unlock()
+	pollOnce(t, c)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if fmt.Sprint(f.pages) != "[1 2]" {
+		t.Errorf("notifications pages read: %v, want [1 2]", f.pages)
+	}
+}
