@@ -1083,6 +1083,69 @@ class RangeAndPushTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("cannot find a scan base", result.stderr)
 
+    def orphan(self, branch, text, message="screenshots"):
+        """A one-commit branch holding only shot.md, sharing no history with the others (a PR's screenshot branch)."""
+        blob = subprocess.run(["git", "hash-object", "-w", "--stdin"], input=text, cwd=self.repo, env=self.env,
+                              capture_output=True, text=True, check=True).stdout.strip()
+        tree = subprocess.run(["git", "mktree"], input="100644 blob %s\tshot.md\n" % blob, cwd=self.repo, env=self.env,
+                              capture_output=True, text=True, check=True).stdout.strip()
+        commit = self.git("commit-tree", tree, "-m", message).stdout.strip()
+        self.git("update-ref", "refs/heads/" + branch, commit)
+        return commit
+
+    def assert_refused_cleanly(self, result, ref):
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("pre-push: refused %s;" % ref, result.stderr)
+        self.assertIn('docs/operations/testing.md, "Privacy scan"', result.stderr)
+        self.assertNotIn("Traceback", result.stdout + result.stderr)
+        self.assertNotIn("secretbox", result.stdout + result.stderr)
+
+    def test_pre_push_skips_a_stale_origin_head_from_another_history(self):
+        # A clone from before a history rewrite: origin/HEAD still names the old master, origin/main the new history.
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        old = self.git("commit-tree", "HEAD^{tree}", "-m", "old history").stdout.strip()
+        self.git("update-ref", "refs/remotes/origin/master", old)
+        self.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/master")
+        remote = self.root / "remote.git"
+        self.run_command("git", "init", "-q", "--bare", str(remote))
+        self.commit("clean.md", "nothing private here\n")
+        result = self.push_to(remote)  # against origin/main: old.md is main's, not this branch's
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.commit("new.md", "runs on secretbox\n")
+        result = self.push_to(remote)
+        self.assert_refused_cleanly(result, "refs/heads/topic")
+        self.assertIn("new.md:1: private value", result.stderr)
+        self.assertNotIn("old.md", result.stderr)
+
+    def test_pre_push_scans_an_orphan_branch_whole(self):
+        remote = self.root / "remote.git"
+        self.run_command("git", "init", "-q", "--bare", str(remote))
+        self.orphan("shots", "a clean picture\n")
+        result = self.run_command("git", "push", "-q", str(remote), "shots")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for branch, text, message, hit in (("shots-file", "taken on secretbox\n", "screenshots", "shot.md:1"),
+                                           ("shots-message", "clean\n", "taken on secretbox", " message:1")):
+            with self.subTest(branch=branch):
+                self.orphan(branch, text, message)
+                result = self.run_command("git", "push", "-q", str(remote), branch)
+                self.assert_refused_cleanly(result, "refs/heads/" + branch)
+                self.assertIn(hit + ": private value", result.stderr)
+
+    def test_range_with_unrelated_ends_scans_the_whole_head(self):
+        self.orphan("shots", "a clean picture\n", message="clean")
+        self.assertEqual(self.scan("--range", "HEAD..shots").returncode, 0)
+        result = self.scan("--range", "shots..HEAD")  # every file of HEAD, old.md included
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("old.md:1: private value", result.stdout)
+        self.orphan("shots", "clean\n", message="fix\n\ntaken on secretbox")
+        self.assertIn(" message:3: private value", self.scan("--range", "HEAD..shots").stdout)
+        for args in (("--range", "nosuch..HEAD"), ("--range",), ("--message", str(self.root / "missing.txt")),
+                     ("--staged", "--commit-msg", str(self.root / "missing.txt"))):
+            with self.subTest(args=args):
+                result = self.scan(*args)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertRegex(result.stderr, r"^privacy_check: [^\n]*\n$")
+
 
 class MessageTests(unittest.TestCase):
     """--message reads text recorded as it is (merge-pr.sh: the PR's title and body); --commit-msg (the commit-msg hook)

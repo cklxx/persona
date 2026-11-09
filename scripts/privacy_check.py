@@ -4,7 +4,8 @@
     python3 scripts/privacy_check.py            # tracked files (content and paths)
     python3 scripts/privacy_check.py --staged   # what `git commit` is about to record, plus its message file if given
     python3 scripts/privacy_check.py --staged --commit-msg .git/COMMIT_EDITMSG   # the commit-msg hook (commit_msg_lines)
-    python3 scripts/privacy_check.py --range origin/master..HEAD   # what those commits change, and their messages
+    python3 scripts/privacy_check.py --range origin/main..HEAD   # what those commits change, and their messages;
+                                                     # all of HEAD when the two share no history (an orphan branch)
     python3 scripts/privacy_check.py --range origin/<base>..<head> --message <file>   # plus text recorded as it is,
                                                      # every line (merge-pr.sh: the PR's title and body, the squash message)
 
@@ -540,26 +541,40 @@ def git_file_data(files, prefix):
 
 
 GIT_OID = re.compile(rb"[0-9a-f]{40}|[0-9a-f]{64}")
+# Git's empty tree, by object id length (SHA-1, SHA-256): the base of a range whose two ends share no history.
+EMPTY_TREE = {40: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+              64: "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321"}
 
 
 def commit_messages(base, head):
-    """(commit, message) of every commit in base..head, newest first, from one `git log` instead of one per commit (a
-    long range spent most of its time starting git). Git ends %B at a NUL byte, so NULs only separate the fields; no
-    signature check output, which log.showSignature would mix into the messages."""
-    parts = git("log", "-z", "--no-show-signature", "--format=%H%x00%B", base + ".." + head).split(b"\0")
+    """(commit, message) of every commit in base..head (every commit reachable from head when base is the empty tree),
+    newest first, from one `git log` instead of one per commit (a long range spent most of its time starting git). Git
+    ends %B at a NUL byte, so NULs only separate the fields; no signature check output, which log.showSignature would
+    mix into the messages."""
+    commits = head if base in EMPTY_TREE.values() else base + ".." + head
+    parts = git("log", "-z", "--no-show-signature", "--format=%H%x00%B", commits).split(b"\0")
     if len(parts) % 2 != 1 or parts[-1] or not all(GIT_OID.fullmatch(c) for c in parts[0:-1:2]):
         raise ValueError("unexpected git log output")
     return [(parts[i].decode(), parts[i + 1].decode("utf-8", "replace")) for i in range(0, len(parts) - 1, 2)]
 
 
 def commit_range(spec):
-    """<base>..<head>: the fork point of the two (what a branch adds on top of base), and head."""
+    """<base>..<head>: the fork point of the two (what a branch adds on top of base), and head. Two ends that share no
+    history (an orphan branch, a base left from a rewritten history) give the empty tree: all of head is scanned."""
     base, sep, head = spec.partition("..")
     if not sep or not base or not head or head.startswith("."):
         sys.exit("privacy_check: --range wants <base>..<head>")
-    head = git("rev-parse", "--verify", head + "^{commit}").decode().strip()
-    base = git("merge-base", base, head).decode().strip()
-    return base, head
+    try:
+        head = git("rev-parse", "--verify", head + "^{commit}").decode().strip()
+        base = git("rev-parse", "--verify", base + "^{commit}").decode().strip()
+    except subprocess.CalledProcessError:
+        sys.exit("privacy_check: --range %s does not name two commits; scan did not complete" % spec)
+    fork = subprocess.run(["git", "-C", ROOT, "merge-base", base, head], capture_output=True)
+    if fork.returncode == 1 and not fork.stdout:  # no common ancestor
+        return EMPTY_TREE[len(head)], head
+    if fork.returncode:
+        sys.exit("privacy_check: git merge-base failed; scan did not complete")
+    return fork.stdout.decode().strip(), head
 
 
 def git_config(key):
@@ -608,8 +623,12 @@ def commit_msg_lines(path):
 
 
 def option(name):
-    """The argument after name on the command line (None without name)."""
-    return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else None
+    """The argument after name on the command line (None without name); name as the last argument is an error."""
+    if name not in sys.argv:
+        return None
+    if sys.argv.index(name) + 1 == len(sys.argv):
+        sys.exit("privacy_check: %s wants a value" % name)
+    return sys.argv[sys.argv.index(name) + 1]
 
 
 def main():
@@ -690,9 +709,12 @@ def main():
                 for w in problems(line, words):
                     report("commit " + c[:9] + " message", n, w)
     lines = []
-    if message and os.path.exists(message):
+    for name, path in (("--message", message), ("--commit-msg", commit_msg)):
+        if path is not None and not os.path.isfile(path):
+            sys.exit("privacy_check: %s %s is not a file; scan did not complete" % (name, path))
+    if message is not None:
         lines.extend(enumerate(open(message).read().splitlines(), 1))
-    if commit_msg and os.path.exists(commit_msg):
+    if commit_msg is not None:
         lines.extend(commit_msg_lines(commit_msg))
     for n, line in lines:
         for w in problems(line, words):
@@ -700,7 +722,7 @@ def main():
     for f, where, kind in bad:
         print("%s:%s: %s" % (f, where, kind))
     if bad:
-        print("privacy_check: %d hit(s). Use placeholders (<hub 地址>, me@example.com); see CLAUDE.md." % len(bad), file=sys.stderr)
+        print("privacy_check: %d hit(s). Use placeholders (<hub address>, me@example.com); see CLAUDE.md." % len(bad), file=sys.stderr)
         if hit & waivable:
             print("privacy_check: a config value that is an ordinary word and names nobody (a machine id like a room's "
                   "name) can be marked not private with a !<word> line in private-words.txt "
