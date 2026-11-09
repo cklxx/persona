@@ -2,19 +2,24 @@ package hub
 
 import (
 	"bytes"
+	"compress/gzip"
 	"embed"
 	"io"
 	"io/fs"
+	"mime"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/nwverse/persona/server/internal/webasset"
 )
 
 // webDist is the web client built into a published personad (scripts/release/publish.sh copies web/dist here before building);
-// in other builds only the placeholder is there.
+// in other builds only the placeholder is there. Its hashed assets are kept gzipped (webasset.Precompress, run by the
+// build after the copy): name.gz instead of name.
 //
 //go:embed all:webdist
 var webDist embed.FS
@@ -23,6 +28,10 @@ var webDist embed.FS
 // API's origin: no CORS, and the WebSocket and images authenticate the same way. Without that directory the copy built
 // into personad serves (published builds), and without either every non-API path is a 404, as before. Paths without a
 // file fall back to index.html (client-side routes).
+//
+// The built-in copy's precompressed assets (docs/web/web.md "Precompressed assets") go out as they are stored to a
+// client that takes gzip, and decompressed to any other request, with the headers and bytes a plain file would
+// have. The data dir's files are plain and gzipResponses compresses them as it sends them, as before.
 func webApp(dir string) http.Handler {
 	embedded, _ := fs.Sub(webDist, "webdist")
 	return webFrom(dir, embedded)
@@ -36,11 +45,12 @@ func webFrom(dir string, embedded fs.FS) http.Handler {
 		}
 		// The data dir wins (scripts/deploy/deploy.sh web swaps it in whole), checked on every request like before.
 		var site fs.FS
+		builtIn := false // site is the copy built into personad, whose assets may be stored gzipped
 		if st, err := os.Stat(filepath.Join(dir, "index.html")); err == nil && !st.IsDir() {
 			site = os.DirFS(dir)
 		} else if embedded != nil {
 			if st, err := fs.Stat(embedded, "index.html"); err == nil && !st.IsDir() {
-				site = embedded
+				site, builtIn = embedded, true
 			}
 		}
 		if site == nil {
@@ -49,12 +59,20 @@ func webFrom(dir string, embedded fs.FS) http.Handler {
 		}
 		name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
 		file := name
-		if st, err := fs.Stat(site, name); name == "" || err != nil || st.IsDir() || strings.HasPrefix(path.Base(name), ".") {
-			if strings.HasPrefix(name, "assets/") { // a missing hashed asset is a real 404, not the app
+		asset, hidden := strings.HasPrefix(name, "assets/"), strings.HasPrefix(path.Base(name), ".")
+		// In the built-in copy an asset's .gz is how another asset is stored, never a file of its own (Vite makes none).
+		storedForm := builtIn && asset && strings.HasSuffix(name, webasset.Suffix)
+		stored := false // file is kept as file + webasset.Suffix
+		if name == "" || hidden || storedForm || !isFile(site, name) {
+			switch {
+			case builtIn && asset && !hidden && !storedForm && isFile(site, name+webasset.Suffix):
+				stored = true
+			case asset: // a missing hashed asset is a real 404, not the app
 				http.NotFound(w, r)
 				return
+			default:
+				file = "index.html"
 			}
-			file = "index.html"
 		}
 		switch {
 		// the service worker and the manifest (docs/web/web.md "Install as an app") are checked again on every load, like the shell
@@ -73,6 +91,10 @@ func webFrom(dir string, embedded fs.FS) http.Handler {
 			serveIndex(w, r, site)
 			return
 		}
+		if stored {
+			serveStored(w, r, site, file)
+			return
+		}
 		f, err := site.Open(file)
 		if err != nil {
 			http.NotFound(w, r)
@@ -87,6 +109,50 @@ func webFrom(dir string, embedded fs.FS) http.Handler {
 		}
 		http.ServeContent(w, r, path.Base(file), st.ModTime(), rs)
 	})
+}
+
+// isFile: name is in site and not a directory.
+func isFile(site fs.FS, name string) bool {
+	st, err := fs.Stat(site, name)
+	return err == nil && !st.IsDir()
+}
+
+// serveStored serves the asset name that site keeps as name + webasset.Suffix. A request gzipResponses would
+// compress (gzipWanted) gets the stored bytes, marked as gzip, which gzipResponses then passes on as they are. Any
+// other (no gzip, HEAD, a range) gets them decompressed, the same answer as for the plain file.
+func serveStored(w http.ResponseWriter, r *http.Request, site fs.FS, name string) {
+	f, err := site.Open(name + webasset.Suffix)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	rs, ok := f.(io.ReadSeeker)
+	if err != nil || !ok {
+		http.NotFound(w, r)
+		return
+	}
+	// The type goes by the plain name, as http.ServeContent would; one only sniffing could tell is sent decompressed.
+	if ct := mime.TypeByExtension(path.Ext(name)); ct != "" && gzipWanted(r) {
+		h := w.Header()
+		h.Set("Content-Type", ct)
+		h.Set("Content-Encoding", "gzip")
+		h.Add("Vary", "Accept-Encoding")
+		http.ServeContent(w, r, path.Base(name), st.ModTime(), rs)
+		return
+	}
+	zr, err := gzip.NewReader(rs)
+	var plain []byte
+	if err == nil {
+		plain, err = io.ReadAll(zr) // to the end: the checksum is checked there
+	}
+	if err != nil { // a broken build; not to be kept for a year by a cache
+		w.Header().Del("Cache-Control")
+		http.Error(w, "broken asset", http.StatusInternalServerError)
+		return
+	}
+	http.ServeContent(w, r, path.Base(name), st.ModTime(), bytes.NewReader(plain))
 }
 
 // serveIndex serves index.html with its <base> at the sub-path a reverse proxy serves the hub under (docs/web/web.md "Sub-path"):
