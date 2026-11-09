@@ -23,6 +23,10 @@ type pagedNotifications struct {
 	notModified bool     // answer 304 when If-Modified-Since comes
 	pages       []int    // the page of every notifications request
 	since       []string // its If-Modified-Since
+	runs        string   // main's workflow_runs JSON (the CI follow-up); none when empty
+	// served runs right after a notifications page is answered, f.mu held: what changes on GitHub while the poll
+	// reads the next page.
+	served func(page int)
 }
 
 func (f *pagedNotifications) server(t *testing.T) *Connector {
@@ -60,6 +64,9 @@ func (f *pagedNotifications) server(t *testing.T) *Connector {
 			from, to := min(len(f.list), (page-1)*per), min(len(f.list), page*per)
 			w.Header().Set("Last-Modified", "Mon, 02 Nov 2026 10:00:00 GMT")
 			_, _ = w.Write([]byte("[" + strings.Join(f.list[from:to], ",") + "]"))
+			if f.served != nil {
+				f.served(page)
+			}
 		case api7:
 			_, _ = w.Write([]byte(`{"title":"Example bug","state":"open","user":{"login":"bob"},"body":"Something broke",` +
 				`"html_url":"https://github.com/example-org/example-repo/issues/7","comments":0}`))
@@ -68,6 +75,16 @@ func (f *pagedNotifications) server(t *testing.T) *Connector {
 				`"html_url":"https://github.com/example-org/example-repo/issues/8","comments":0}`))
 		case api7 + "/comments", api8 + "/comments":
 			_, _ = w.Write([]byte(`[]`))
+		case "/repos/example-org/example-repo":
+			_, _ = w.Write([]byte(`{"default_branch":"main"}`))
+		case "/repos/example-org/example-repo/actions/runs":
+			runs := f.runs
+			if runs == "" || r.URL.Query().Get("branch") != "main" {
+				runs = "[]"
+			}
+			_, _ = w.Write([]byte(`{"workflow_runs":` + runs + `}`))
+		case "/repos/example-org/example-repo/branches/main":
+			_, _ = w.Write([]byte(`{}`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"message":"Not Found"}`))

@@ -27,6 +27,15 @@ type inboxState struct {
 	fullAt       time.Time                        // the last read without If-Modified-Since
 	ci           map[string]*ciMeta               // CI items, by thread (rules.go)
 	repos        map[string]repoMeta              // repositories' default branches (rules.go)
+	marks        map[string]*readMark             // by thread: whether its thing was read on GitHub
+}
+
+// readMark is what says whether a thread's thing was read on GitHub (applyNotifications). It lives in memory only,
+// like the things; a thread without one is never inferred read.
+type readMark struct {
+	// notified is the updated_at of the newest notification the thing came from. The thing's At is not always that:
+	// the CI follow-up moves it to later runs GitHub sent no notification of. Zero is unknown: nothing is inferred.
+	notified time.Time
 }
 
 var (
@@ -147,8 +156,7 @@ func (c *Connector) laterNotifications(ctx context.Context, ns []notification) (
 }
 
 // applyNotifications reads the threads that moved (at most maxDetails, none while requests run low or GitHub asks
-// for a pause) and marks those no longer in ns, the unread list newest first, as read elsewhere: any when ns is
-// complete, else only those that moved after its oldest notification (one still unread would have been in it).
+// for a pause) and marks those no longer in ns, the unread list newest first, as read elsewhere (readOnGitHub).
 func (c *Connector) applyNotifications(ctx context.Context, ns []notification, complete bool, now time.Time) bool {
 	st := &c.inbox
 	me := c.Status(ctx).Account
@@ -231,6 +239,10 @@ func (c *Connector) applyNotifications(ctx context.Context, ns []notification, c
 		st.mu.Lock()
 		st.seen[n.ID] = stamp
 		st.things[thread] = &thing
+		if st.marks == nil {
+			st.marks = map[string]*readMark{}
+		}
+		st.marks[thread] = &readMark{notified: n.UpdatedAt}
 		st.mu.Unlock()
 		moved = true
 	}
@@ -240,11 +252,25 @@ func (c *Connector) applyNotifications(ctx context.Context, ns []notification, c
 		switch {
 		case now.Sub(t.At) > forgetAfter:
 			delete(st.things, thread)
-		case (complete || !oldest.IsZero() && t.At.After(oldest)) && !unread[thread] && !t.Read && t.Done == "":
+			delete(st.marks, thread)
+		case !unread[thread] && !t.Read && t.Done == "" && st.readOnGitHub(thread, t, complete, oldest):
 			t.Read, moved = true, true
 		}
 	}
 	return moved
+}
+
+// readOnGitHub says whether thread's thing, missing from the unread list just read (newest first, oldest its oldest
+// notification), was read on GitHub: its own newest notification would have been in the list (the list is complete,
+// or that notification is newer than the oldest one read), and the thing is still that notification's move. A CI item
+// the follow-up moved to a later run is not: GitHub sent no notification of that run, so reading an earlier one says
+// nothing of it. st.mu is held.
+func (st *inboxState) readOnGitHub(thread string, t *connector.InboxThing, complete bool, oldest time.Time) bool {
+	m := st.marks[thread]
+	if m == nil || m.notified.IsZero() || t.At.After(m.notified) {
+		return false
+	}
+	return complete || !oldest.IsZero() && m.notified.After(oldest)
 }
 
 // tagsOf is what a notification's thing is about: its repository, who made the newest move (a person's PR / issue
