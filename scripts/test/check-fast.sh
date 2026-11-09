@@ -7,6 +7,8 @@
 #   scripts/check-fast.sh --base main     # diff against another ref
 #   scripts/check-fast.sh --all           # every local fast check except iOS/macOS builds and the Postgres suite,
 #                                         # including every scripts/**/test_*.py suite CI's Scripts tests job runs
+#                                         # (a test_*.py that never mentions unittest is a SKIP line, as in
+#                                         # scripts/ci/python-tests.py; diff mode skips it too)
 #   scripts/check-fast.sh -h|--help
 #
 # Path mapping (diff mode):
@@ -42,7 +44,9 @@
 #                              ambiguous (a case "*" matches slashes, so scripts/* covers nested paths too); plus
 #                              each changed scripts/<dir>/test_*.py and the test_<name>.py of each changed script
 #                              <name>.py / <name>.sh (- read as _; db.sh's is test_db_sh.py), run from its
-#                              directory as CI does (#3968)
+#                              directory as CI does (#3968). scripts/hooks/** also runs
+#                              scripts/test/test_privacy_check.py (it runs the hooks); scripts/privacy_check.py also
+#                              scripts/release/test_check_bundle_privacy.py (it imports privacy_check)
 #   docs/**, any *.md          scripts/test/test_doc_paths.py and test_doc_go_paths.py (paths quoted in the docs, the
 #                              CLAUDE.md doc index), test_doc_wire.py (the wire lists in protocol.md, extensions.md)
 #   server/internal/{proto,hub,extension}/**, schema/extension/manifest.schema.json
@@ -693,13 +697,19 @@ if [ "$ALL" -eq 0 ]; then
 fi
 
 # script_test_add adds a scripts/<dir>/test_*.py that exists (a deleted one is not run) and that no dedicated job above
-# already runs (refs, bundle, extension schema, the android checkers).
+# already runs (refs, bundle, extension schema, the android checkers). A file that never mentions unittest is a SKIP
+# line instead, the rule of is_suite in scripts/ci/python-tests.py: python -m unittest runs no tests in such a
+# verification script and exits 5 ("NO TESTS RAN") on Python 3.12 and later.
 script_test_add() {
   case "$1" in
     scripts/test/test_external_service_refs.py|scripts/test/test_sdk_bundle.py|scripts/test/test_extension_schema.py) return 0 ;;
     scripts/app/test_android_*) return 0 ;;
   esac
   [ -f "$1" ] || return 0
+  if ! grep -q unittest "$1"; then
+    arr_has "SKIP  $1 (not a unittest suite)" "${INFO[@]:-}" || INFO+=("SKIP  $1 (not a unittest suite)")
+    return 0
+  fi
   arr_has "$1" "${SCRIPT_TESTS[@]:-}" || SCRIPT_TESTS+=("$1")
 }
 
@@ -709,6 +719,7 @@ script_test_add() {
 # Changes to docs, markdown, apple/, deploy/docker/ and the root Dockerfile add the scripts/test suites that guard them.
 # --all runs every scripts/**/test_*.py suite, the same find as CI's Scripts tests job, minus the few script_test_add
 # skips because a dedicated check above runs them; renaming or dropping one of those checks must update that skip list.
+# test_check_fast.py compares this selection with python-tests.py's.
 if [ "$ALL" -eq 1 ]; then
   while IFS= read -r f; do
     script_test_add "$f"
@@ -733,6 +744,12 @@ else
         script_test_add scripts/test/test_doc_wire.py ;;
     esac
     case "$f" in apple/*) script_test_add scripts/test/test_apple_l10n.py ;; esac
+    # Suites whose names do not match the file they test: test_privacy_check.py copies scripts/hooks into its temp
+    # repositories and runs the hooks there; check_bundle_privacy.py imports privacy_check.
+    case "$f" in
+      scripts/hooks/*) script_test_add scripts/test/test_privacy_check.py ;;
+      scripts/privacy_check.py) script_test_add scripts/release/test_check_bundle_privacy.py ;;
+    esac
     case "$f" in deploy/docker/*|docs/operations/docker.md|Dockerfile) script_test_add scripts/test/test_docker_entrypoint.py ;; esac
   done <<< "$CHANGED"
 fi

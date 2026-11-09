@@ -14,6 +14,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -24,6 +25,20 @@ FAILING = "import unittest\n\nclass T(unittest.TestCase):\n    def test_broken(s
 # The scripts/test suites that guard files outside scripts/; stubbed passing unless a test breaks one.
 GUARD_SUITES = ("test_doc_paths.py", "test_doc_go_paths.py", "test_doc_wire.py", "test_apple_l10n.py",
                 "test_docker_entrypoint.py")
+# A python3 that records each call ("<cwd>|<args>") instead of running anything.
+FAKE_PYTHON = '#!/bin/sh\nprintf "%s|%s\\n" "$PWD" "$*" >> "$FAKE_PYTHON_LOG"\n'
+
+
+def ci_is_suite():
+    """is_suite of scripts/ci/python-tests.py: the rule CI's Scripts tests job picks its suites by."""
+    saved = list(sys.path)  # the module puts scripts/ci and scripts/test on sys.path for its own imports
+    try:
+        spec = importlib.util.spec_from_file_location("ci_python_tests", ROOT / "scripts/ci/python-tests.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    finally:
+        sys.path[:] = saved
+    return module.is_suite
 
 
 @unittest.skipUnless(shutil.which("timeout") or shutil.which("gtimeout"), "check-fast.sh needs GNU timeout")
@@ -278,6 +293,64 @@ class CheckFastScriptsTests(unittest.TestCase):
         self.assertIn("failed: scripts/tools/test_other.py", out)
         self.assertNotIn("failed: scripts/test/test_external_service_refs.py", out)
         self.assertNotIn("queued: scripts/tools/test_gone.py", out)  # one job, not one per suite
+
+    def test_a_test_file_that_never_mentions_unittest_is_skipped_as_in_ci(self):
+        # python -m unittest runs no tests in such a verification script and exits 5 ("NO TESTS RAN") from Python 3.12
+        # on, so CI's python-tests.py skips it. The --all count is the seven suites of setUp.
+        self.write("scripts/tools/test_verify.py", "print('a verification script that takes arguments')\n")
+        code, out = self.check_fast("--all", path=self.toolchain_without_node_and_go())
+        self.assertEqual(1, code, out)  # test_other.py fails, and node and go are missing
+        self.assertIn("SKIP  scripts/tools/test_verify.py (not a unittest suite)", out)
+        self.assertIn("7 suite(s): 1 failed, 0 timed out", out)
+        code, out = self.check_fast()
+        self.assertEqual(0, code, out)
+        self.assertIn("SKIP  scripts/tools/test_verify.py (not a unittest suite)", out)
+        self.assertNotIn("queued: scripts/tools/test_verify.py", out)
+
+    def test_all_runs_the_suites_ci_runs(self):
+        # Drift guard: on a copy of every real test_*.py, --all runs python-tests.py's suites minus the ones the
+        # dedicated jobs run (script_test_add), and reports each file CI skips. A python3 stub records the runs.
+        for real in ROOT.joinpath("scripts").rglob("test_*.py"):
+            if "node_modules" not in real.parts:
+                self.write(real.relative_to(ROOT), real.read_text(encoding="utf-8", errors="replace"))
+        is_suite = ci_is_suite()
+        found = {str(p.relative_to(self.repo)): is_suite(p) for p in self.repo.joinpath("scripts").rglob("test_*.py")}
+        dedicated = {"scripts/test/test_external_service_refs.py", "scripts/test/test_sdk_bundle.py",
+                     "scripts/test/test_extension_schema.py"}
+        expected = sorted(p for p, suite in found.items()
+                          if suite and p not in dedicated and not p.startswith("scripts/app/test_android_"))
+        bin_dir = Path(self.toolchain_without_node_and_go())
+        (bin_dir / "python3").unlink()
+        (bin_dir / "python3").write_text(FAKE_PYTHON)
+        (bin_dir / "python3").chmod(0o755)
+        log = bin_dir / "python.log"
+        code, out = self.check_fast("--all", path=str(bin_dir), env={"FAKE_PYTHON_LOG": str(log)})
+        ran = sorted(f"{Path(cwd).resolve().relative_to(self.repo.resolve())}/{args.split()[-1]}.py"
+                     for cwd, args in (line.split("|", 1) for line in log.read_text().splitlines())
+                     if args.startswith("-B -m unittest -q "))
+        self.assertIn("scripts/test/test_check_fast.py", expected)
+        self.assertEqual(expected, ran, out)
+        for path in (p for p, suite in found.items() if not suite):
+            self.assertIn(f"SKIP  {path} (not a unittest suite)", out)
+
+    def test_a_hook_change_runs_the_privacy_suite(self):
+        # test_privacy_check.py copies scripts/hooks into its temp repositories and runs the hooks there; a hook has no
+        # .py or .sh name for the name mapping to match.
+        self.break_suite("test_privacy_check.py")
+        self.write("scripts/hooks/pre-push", "#!/bin/sh\n")
+        code, out = self.check_fast()
+        self.assertEqual(1, code, out)
+        self.assertIn("FAIL     scripts/test/test_privacy_check.py", out)
+
+    def test_a_privacy_check_change_also_runs_the_bundle_privacy_suite(self):
+        # scripts/release/check_bundle_privacy.py imports privacy_check.
+        self.commit_on_top("scripts/test/test_privacy_check.py", PASSING, "base")
+        self.commit_on_top("scripts/release/test_check_bundle_privacy.py", FAILING, "base")
+        self.write("scripts/privacy_check.py", "print('clean')\n# changed\n")
+        code, out = self.check_fast()
+        self.assertEqual(1, code, out)
+        self.assertIn("PASS     scripts/test/test_privacy_check.py", out)
+        self.assertIn("FAIL     scripts/release/test_check_bundle_privacy.py", out)
 
     def test_a_migration_edit_runs_the_freeze_check(self):
         self.write("scripts/ci/migration_freeze.py", "print('freeze-ran')\n")
