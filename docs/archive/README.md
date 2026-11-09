@@ -34,6 +34,8 @@ Place necessary historical text under its module directory and list it below.
 | `integrations/msg-render-plan.md` | Message reading and rendering pipeline: diagnosis and rework plan |
 | `integrations/msg-render-verification.md` | Real-data verification of the message pipeline lane (stages 2–4) |
 | `integrations/session-verify.md` | Real-data verification of session reading and message sending (2026-10-31) |
+| `integrations/terminal-records.md` | Terminal measurements: latency and frame intervals, phone control, pane streams, two full clients, CJK widths and focus-sync runs (2026-10-29 to 2026-11-05) |
+| `integrations/codex-app-server-records.md` | Codex app-server first implementation: acceptance record (2026-11-02) |
 | `operations/tab-switch-performance-739.md` | Persona/Agents switching CPU and request measurements, targeted fixes and the separate Mac/TestFlight acceptance boundary (#739) |
 | `operations/apple-tab-switch-validation-739.md` | Original Apple 240-sample matrix, cadence/payload observations, hidden HTTP follow-up and open acceptance gates (#739 / #1159) |
 | `operations/node-link-update-validation.md` | Persona Link node update acceptance (#1158) |
