@@ -13,7 +13,7 @@ These are the checks on real Windows 10 and 11 machines (2026-11-03 to 2026-11-0
 - Tests on Windows: the fake App bus on a named pipe (`codex_desktop_windows_test.go`: initialize, owner discovery, start turn, a thread opened then retried, an image, no wait when `codex://` cannot open),
   the handle-table scan against a child holding a rollout open, the `codex.exe` scan against a copy of the test binary named `codex.exe` (its `CODEX_HOME`, herdr pane and `--listen`, and no other variable),
   a running CLI's thread neither resumable nor sendable, the private-socket check, npm's `codex.cmd` resolved to its `codex.exe`. On Linux, the whole `internal/node` package fails only where master fails on the same machine.
-- Not verified: sending from the phone into a real App chat end to end (it would write into a conversation of the user's; see [codex.md](../integrations/codex.md), "Windows", for how to check it);
+- Not verified: sending from the phone into a real App chat end to end (it would write into a conversation of the user's; see [codex.md](../../integrations/codex.md), "Windows", for how to check it);
   opening an unloaded thread with `codex://` (it brings the App to the front); Codex in a real herdr on Windows (no herdr here); a CLI on a `--listen unix://` app-server
   (Codex's daemon does not start from npm's launcher on Windows: "this Windows launcher prevents background processes from outliving it").
 
@@ -31,7 +31,7 @@ These are the checks on real Windows 10 and 11 machines (2026-11-03 to 2026-11-0
 - From the panel: opened the pairing window (centered on the screen); pasted links (preview of the hub, the fingerprint and the machine name); paired against an unreachable hub (the explained error with the raw one after it);
   on the passive tab, **Generate pairing link** (the link, the addresses, the firewall line; `link.json` and `link-tls/` written in the temporary directory); `tray --open <link>` from a second process (handed to the open window, which switched to the active tab with the link filled in);
   the sign-in switch (the Run entry written, then removed); **Quit**.
-- Found and fixed on the way: pages rendered at half size (go-webview2 passes the rasterization scale wrongly), the pairing window never opened from the panel (WebView2 holds back callbacks while one runs), and the sign-in switch could stay showing its old state after a toggle while the panel was hidden. All three are in [lessons/windows.md](../lessons/windows.md).
+- Found and fixed on the way: pages rendered at half size (go-webview2 passes the rasterization scale wrongly), the pairing window never opened from the panel (WebView2 holds back callbacks while one runs), and the sign-in switch could stay showing its old state after a toggle while the panel was hidden. All three are in [lessons/windows.md](../../lessons/windows.md).
 - Every sample state, language and theme in Edge (Playwright): nothing outside the window and text contrast at least 4.5:1. This check found the Japanese tabs too wide for the pairing window, and the footer's version at 3.3:1 in light mode; both are fixed.
 - Tests: `internal/linktray`, `internal/i18n`, the poke tests in `internal/link` and the watch tests in `internal/netaddr` passed on Windows; `cmd/persona-link`, `internal/linktray`, `internal/link` and `internal/netaddr` passed on Linux.
 - Not verified: **Install background service** from the panel (it runs `persona-link install`, which would register this machine's scheduled task; `install` itself is covered by the tests and the 2026-11-04 record);
