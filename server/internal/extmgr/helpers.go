@@ -7,9 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/netip"
 	"strconv"
@@ -56,21 +54,8 @@ func writeCode(w http.ResponseWriter, status int, code, msg string, extra map[st
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-func readAdminJSON(w http.ResponseWriter, r *http.Request, v any) bool {
-	b, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return false
-	}
-	if len(strings.TrimSpace(string(b))) == 0 {
-		return true
-	}
-	if err := json.Unmarshal(b, v); err != nil {
-		writeErrCode(w, http.StatusBadRequest, "bad_request", errors.New("bad JSON: "+err.Error()))
-		return false
-	}
-	return true
-}
+// readAdminJSON reads an admin page's JSON body into v (an empty body leaves v as it is).
+var readAdminJSON = apierr.ReadAdminJSON
 
 func atoi(s string) int {
 	n := 0
