@@ -195,7 +195,7 @@ Not established: full Persona UI races when two subscribers send opposing decisi
 - Checked Persona's existing client / directory / routing source. This research is not a complete implementation; no running-server integration had been added yet.
 - Upstream source was not built or run, no real multi-client write tests, no deployment, no TestFlight release.
 
-## First implementation (2026-11-02)
+## First implementation
 
 Entry points are `node/codex_registry.go`, `codex_discovery.go`, and `codex_remote.go`. Reuses RPC envelopes/pending from `assistant_codex.go`, connecting external WebSockets through pluggable message writers and dispatch without putting external instances into assistant-process stop/reap.
 

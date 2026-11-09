@@ -112,7 +112,7 @@ glyph shapes are what makes it "look like a terminal", and a Latin font is only 
 - Chinese glyphs are about 1 em wide, while two cells are 1.2 em, leaving visible gaps at native size (one cause of tab4's uneven-spacing report).
   Wide glyphs now grow to about 92% of two cells, capped at 86% of line height and 1.25×.
 
-## 7. Typing directly in the terminal (2026-10-29)
+## 7. Typing directly in the terminal
 
 - The terminal view (`TerminalScrollView`) implements `UITextInput` itself (`TerminalInput.swift`); tap makes it first responder, with the keyboard acting directly on the terminal.
   - Its document only holds the IME's composing marked text (pinyin), drawn at the cursor and sent only after commit.
@@ -170,7 +170,7 @@ The tunable end is fast-changing panes (Codex-like 60 fps TUIs, long logs run th
 
 `TestFrameGateMergesBurstsOnly` guarantees correctness. Every session measured was Claude, which never saturated the window; recheck with an Agent redrawing tens of frames per second (Codex-like).
 
-## 11. Phone control: real phone dimensions (option A, decided 2026-10-29)
+## 11. Phone control: real phone dimensions (option A)
 
 When mirroring, Claude Code thinks the terminal is 172 columns wide and lays out for the computer, then the phone wraps again: the wrong experience. Opening the Terminal tab now **takes control** of the terminal:
 the program sees columns × rows computed from the phone's current font size; Claude lays out at phone width (permission dialogs, diffs and spinner all drawn by Claude),
@@ -227,7 +227,7 @@ Control returns to the computer as soon as the tab closes, about 5 s after the A
 A node without `session control` still observes and returns `control: false`; the App gets `unsupported` and only mirrors (`TestTerminalControlOnAnOldNodeOnlyWatches`).
 The measurements are in `docs/archive/integrations/terminal-records.md`.
 
-## 12. What scrolling up shows (decision, evening 2026-10-29)
+## 12. What scrolling up shows
 
 The user wants the terminal to be a phone-sized PTY, with upward swipes scrolling within it; Claude Code in default mode, no environment variables or fullscreen configuration.
 **Cleared history after resize / resume is normal and expected.** Upward scrolling therefore shows output since control began (phone width), not pre-control history or appended transcripts.
@@ -255,7 +255,7 @@ Now all swipes under control are herdr wheel events; locally accumulated history
 Tried, not adopted: render the transcript in Claude style above the terminal on the phone (branch `lane/terminal-transcript`, `TerminalHistory.swift`, sanitized long-chat fixtures and seam alignment).
 User rejected it: the terminal should contain only what it emitted.
 
-## 14. Terminal rises from the bottom, Moshi-style key bar (requested 2026-10-30)
+## 14. Terminal rises from the bottom, Moshi-style key bar
 
 - Previously Terminal was a chat-page tab under the header (title, companion bar, tabs). Scrolling or keyboard-driven header expansion changed terminal height, **resizing the pane under control** and making Claude reflow every time.
 - Tapping Terminal now opens from the bottom over the full page (`TerminalCover`, fullScreenCover + transparent background). Only a thin top bar (size, handle, settings), following a downward drag;
@@ -266,7 +266,7 @@ User rejected it: the terminal should contain only what it emitted.
 - Keyboard reduces terminal rows (`testDrivingTheTerminalSendsItsBytes`). Caveat: XCUITest typing switches the simulator to hardware-keyboard mode; afterward soft keyboard doesn't appear and terminal doesn't yield rows,
   failing this test (also on clean master). Without Simulator.app this can't be reversed; create a new simulator through `scripts/app/sim-boot.sh "<new name>"`.
 
-## 15. Tap terminal = click inside it; keyboard only from the key-bar button (requested 2026-10-30)
+## 15. Tap terminal = click inside it; keyboard only from the key-bar button
 
 - Claude Code fullscreen has clickable areas: pinned top questions (jump to them), Jump to bottom. Previously every phone terminal tap opened the keyboard.
 - Now like Moshi: under control, tap = left-click that cell (`terminal_input.click` → hub → node `terminal.click` → herdr `terminal.mouse` press + release, zero-based column/row;
@@ -277,7 +277,7 @@ User rejected it: the terminal should contain only what it emitted.
   A drag starting on a handle neither scrolls the view nor sends terminal wheel events (`gestureRecognizerShouldBegin`).
 
 
-## 16. Codex won't scroll upward: wheel events need a cell and one event per line (user feedback, 2026-10-30)
+## 16. Codex won't scroll upward: wheel events need a cell and one event per line
 
 User: phone-controlled Codex terminal won't scroll upward, while Claude does. Measured on a Linux development machine (herdr 0.9.3, Codex 0.163.0) and hub machine (herdr 0.9.5, same Codex),
 lab pane at 45×30. Codex config was temporarily overridden with `-c`, never changing user config:
@@ -317,7 +317,7 @@ Claude works because it accepts wheels anywhere (row 0 and input included) and a
 
 Remaining difference (same as Moshi/real terminals): starting a swipe on Codex input/status or pinned question doesn't scroll, since it only accepts wheels in the chat area; Claude accepts anywhere.
 
-## 17. Control is sluggish over a slow link (user feedback, 2026-11-01)
+## 17. Control is sluggish over a slow link
 
 User: a development machine connected through a SOCKS5 proxy on the hub machine (`docs/server/server.md`, NAS section step 7) becomes very sluggish for scrolling and input when its terminal is controlled.
 
@@ -342,7 +342,7 @@ Under control, each key or wheel movement needs that round trip before echo; una
 
 Phone rendering (`dumpsys gfxinfo`) and real-session key/wheel round trips weren't measured: the former needs the user's phone on adb, the latter requires injecting keys into active user sessions.
 
-## 18. Web clipboard: paste images/files, copy, OSC 52 (2026-11-04)
+## 18. Web clipboard: paste images/files, copy, OSC 52
 
 Web terminal clipboard works both inward (screenshots/files, like Moshi web) and outward (selected text, program OSC 52). Both share `lib/terminal-clipboard.ts` (pure logic) and
 `session/terminal/clipboard.ts` (browser side); hints use page toasts, upload status appears at the terminal top.
@@ -462,7 +462,7 @@ Queries never appear in any of the three streams (browser xterm never sees them)
 
 Not verified: whether herdr proactively emits `CSI ? 997 ; n n` on theme changes after DEC 2031 is enabled (only query/reply tested).
 
-## 19. Standalone terminal: open without an Agent (2026-11-04, web)
+## 19. Standalone terminal: open without an Agent (web)
 
 User asked "Doesn't Persona have a terminal?" It always did, but only in an Agent session's side panel (`sessionCan(s, "terminal")`),
 not ordinary shell panes without Agents, new shells on a computer, or herdr spaces/tabs/panes. Moshi web has a computer → herdr workspace → tab → pane tree,
@@ -528,7 +528,7 @@ A pane terminal is a full shell on that computer, stricter than an Agent-session
 Real herdr: `PERSONA_LIVE_PANES=1 go test -tags herdrlive -run TestLivePanes ./internal/node/` (`panes_live_test.go`): list spaces/tabs/panes (snapshot includes sessionless panes, herdr 0.9.5),
 create a temporary tab with `tab create --no-focus`, receive frames via addressed `terminal.watch`, then close it; no existing panes touched or typing injected.
 
-## 20. Web terminal details: URLs, context menu, search, cursor options, focus (2026-11-05, #2331)
+## 20. Web terminal details: URLs, context menu, search, cursor options, focus (#2331)
 
 Interactions added after comparison with Moshi web. All web-side: `web/src/lib/terminal-details.ts`, `web/src/lib/terminal-search.ts` (tested pure logic), `web/src/views/session/terminal/` (`feed.ts`, `FindBar.tsx`, `focus.ts`, `TerminalOptions.tsx`), `TerminalPanel.tsx`. No protocol/hub/node changes.
 
@@ -606,7 +606,7 @@ Moshi switches Term/Chat in the same session page's center (top segmented contro
 - Controlled size is the session-page center; a right Files/Git panel narrows it, with debounced resize sent (same as dragging the old side panel narrower).
 - Verification: count outgoing WebSocket `terminal_subscribe` / `terminal_unsubscribe` on fake hub (`MOCK_TERMINAL_STREAM=1 MOCK_TERMINAL_CONTROL=1 MOCK_TERMINAL_PANES=1`): page open 0, terminal switch 1, repeated ⌘J/segmented switches still 1 and no unsubscribe, changing page unsubscribes.
 
-## 23. New worktree…: create a Git worktree from a workspace repository (2026-11-05, web, #2431)
+## 23. New worktree…: create a Git worktree from a workspace repository (web, #2431)
 
 Workspace context/⋯ menu New Worktree… (W), same command in palette. Dialog has **Branch** and **Checkout Path**; Create and Open adds a worktree on the computer, opens it as a herdr workspace grouped under the original, and navigates web to its first terminal.
 Same shape as Moshi `worktree/prepare` + `worktree/create`.
@@ -657,7 +657,7 @@ A new agent can start in a Git worktree of its own, so agents on the same reposi
   - **The branch** goes only with `delete_branch` (`git branch -d`, or `-D` with `force`).
 - All three are full-device routes like section 23's, and extension tokens never reach them. The body is read field by field, plus the two switches (`flags`, booleans only).
 
-## 24. Full herdr UI: a PTY client, switchable beside Single pane (2026-11-05, #2357)
+## 24. Full herdr UI: a PTY client, switchable beside Single pane (#2357)
 
 Moshi web defaults to a full herdr client (herdr sidebar, tabs, splits); Control mode shows only the selected pane, Persona's original observe/control approach (sections 1–20). User wants both, easy switching and a little animation,
 **and decided on 2026-11-05 that opening terminal defaults to Full view** (Single pane remains switchable, and automatic fallback when machine/herdr/system is unsupported or client can't start).
@@ -765,7 +765,7 @@ Measured with two `herdr --session` clients on a temporary session (herdr 0.9.5;
 - Web: `cd web && npm test && npm run build` (`terminal-mode.test.ts`, `Surface.test.tsx`, shortcut registry).
 - End-to-end: `scripts/test/web_herdr_full_e2e.py` (fake hub `MOCK_TERMINAL_FULL=1`, usage at script top: default Full view, ack, color replies, typing, OSC 52 clipboard, switching/mid-animation/remember choice/shortcut/resize/close, Settings, Reduce Motion, reconnect after end, unsupported fallback, old hub hides switch; dark/light × wide/390px screenshots), and `scripts/test/web_herdr_full_live.py` (real herdr, above).
 
-## 25. Mouse: click, drag, buttons and modifiers (2026-11-05, web, #2441)
+## 25. Mouse: click, drag, buttons and modifiers (web, #2441)
 
 User: "Old terminal doesn't even support mouse clicks". Previously control only supported non-dragged left-click (`terminal_input.click`), no drag/right/middle/modifiers. Now full mouse input reaches herdr.
 
@@ -838,7 +838,7 @@ Same routes/messages as web: `apple/Mac/Terminal/MacTerminalMouse.swift` (pure b
 `scripts/test/web_terminal_mouse_e2e.py` (fake hub records `terminal_input.mouse`, Playwright click/drag/right/Shift/settings),
 `go test -tags herdrlive -run TestLiveControlMouse` (`PERSONA_LIVE_MOUSE_PANE`, vim in temporary real herdr tab: click moves cursor to cell, drag creates visual selection).
 
-## 26. Full view conflicts: herdr right-click, prefix, mouse and paste (2026-11-05, web, #2700)
+## 26. Full view conflicts: herdr right-click, prefix, mouse and paste (web, #2700)
 
 User feedback after deployment: "Right-click seems to conflict with herdr, and images can't be pasted", asking for an audit of similar conflicts. Same principle as Moshi (give the terminal area to herdr):
 **herdr owns Full view; Persona only keeps unused actions or actions requiring modifiers herdr doesn't bind.** Single pane behavior unchanged.
@@ -912,7 +912,7 @@ Shared `views/session/terminal/transfer.ts` (`FileTransfer`, also used by Single
   wheel only SGR; left drag reports, Shift-drag doesn't; Ctrl+Shift+V text, text-only Ctrl+V still `^V`; Ctrl+V image → upload + bracketed paths; bar image/text paste; file drop outline; Files entries; other-computer rejected; Mac file `paste` event.
 - `scripts/test/web_herdr_full_conflicts_live.py` (real herdr, temporary `persona-conflict-test`, stop/delete afterward): right-click herdr pane menu without Persona; Shift-right-click Persona without herdr; Ctrl+V image path reaches real pane prompt.
 
-## 27. Character width and CJK alignment: crooked Chinese table borders in Full view (2026-11-05, web, #2751)
+## 27. Character width and CJK alignment: crooked Chinese table borders in Full view (web, #2751)
 
 User screenshot: Claude table rows containing Chinese/fullwidth punctuation shift right border by 1–2 cells, adjacent fish pane's left border becomes jagged `||`. Moshi web lacks the issue, so its implementation was checked:
 
@@ -948,7 +948,7 @@ The measurements (a temporary herdr session, headless Chrome) are in `docs/archi
 - `scripts/test/web_herdr_full_cjk_e2e.py` (fake hub acting as client, positions each wide glyph like real herdr): four `│` borders per row within 0.25 cells of ASCII row (after fix max 0.08, without CSS max 4.77); second emoji cell has no previous-frame residue (without width table, `Z` remains); light/dark each once.
 - `scripts/test/web_herdr_full_live.py` / `web_herdr_full_conflicts_live.py` use same approach with real temporary herdr session; measurements above used it.
 
-## 28. Focus synchronization: herdr and Persona sidebars move together (2026-11-05, web, #3021)
+## 28. Focus synchronization: herdr and Persona sidebars move together (web, #3021)
 
 User: "The selected session in Persona's herdr sidebar and the outer sidebar don't seem linked; Moshi links them, learn from it." Neither direction worked:
 herdr sidebar/tab pane changes didn't change Persona page/sidebar; choosing another pane in Persona sidebar/palette//terminal tree didn't reliably focus herdr

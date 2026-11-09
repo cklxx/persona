@@ -5,9 +5,9 @@ Requirement: **when the server restarts, clients notice nothing at all**. Issue 
 
 Goal: in a normal deployment, no client shows a disconnect notice, no message is lost, and no running chat is interrupted.
 
-## Current state (verified 2026-11-04, before the change, master `2fe55f92`)
+## Before the change
 
-Code locations refer to the current files and functions (checked 2026-11-06; after `2fe55f92`, machine connections (spawning nodes, disconnect handling) moved from hub/machine.go and hub/machine_conn.go to `devices/`; `hub/machine.go` still exists, and `onEvent`, which forwards node events, stayed there); the behavior described is still that before the change.
+Verified on 2026-11-04 against master `2fe55f92`, before the work below. Code locations refer to the current files and functions (checked 2026-11-06; after `2fe55f92`, machine connections (spawning nodes, disconnect handling) moved from hub/machine.go and hub/machine_conn.go to `devices/`; `hub/machine.go` still exists, and `onEvent`, which forwards node events, stayed there); the behavior described is still that before the change.
 
 ### What a restart does
 
@@ -93,7 +93,7 @@ The manager's and the node's run entries (`managercli.Assistant`, `manager run`,
 `hub-systemd.sh` writes both units: the first time (or when the address changes) it stops the service once to hand the port to the socket (only this once is there a ~1 s gap); after that it always just runs `restart personad`.
 `TimeoutStopSec=20` (headroom beyond the 8 s shutdown budget).
 
-### Blue-green switching: the hub's edge (`internal/hubedge`, 2026-11-06)
+### Blue-green switching: the hub's edge (`internal/hubedge`)
 
 Modeled on an account-pool relay gateway's approach: a resident edge process holds the port, with two slots behind it. The trigger was a problem reproduced on Linux on 2026-11-05: when self-update `syscall.Exec`'d the new binary in place, the listening socket passed by systemd was lost.
 `LISTEN_FDS` was cleared at startup, and the fd duplicated by `net.FileListener` had close-on-exec set, so the new process had to `bind` itself while the port was still held by `personad.socket`; it exited with `address already in use`,
