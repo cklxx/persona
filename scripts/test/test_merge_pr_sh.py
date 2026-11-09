@@ -6,6 +6,7 @@ answers `repo view` and `api`, and logs every call. Like GitHub with squash mess
 records `<title> (#7)` and the body as they are at merge time (`at_merge`: an edit saved after the last view) unless
 the merge passes --subject / --body-file. The real gh never runs.
 """
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,12 @@ import unittest
 
 SCRIPTS = Path(__file__).resolve().parent.parent
 WORD = "quill" + "wren"  # a made-up private word, split so the repository scan of this file does not see it
+# The variables that name a build config (privacy_check.CONFIG_ENV): left set, they would point the scan at this
+# machine's real config.
+_spec = importlib.util.spec_from_file_location("privacy_check", SCRIPTS / "privacy_check.py")
+_privacy_check = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_privacy_check)
+CONFIG_ENV = set(_privacy_check.CONFIG_ENV)
 
 FAKE_GH = r'''
 import json, os, sys
@@ -52,7 +59,7 @@ class MergePrTests(unittest.TestCase):
         (bin_dir / "gh").chmod(0o755)
         self.state, self.log = root / "state.json", root / "gh.log"
         self.env = {k: v for k, v in os.environ.items()
-                    if not k.startswith(("GIT_", "GH_", "PYTHON")) and k not in {"PERSONA_CONFIG", "JARVIS_CONFIG"}}
+                    if not k.startswith(("GIT_", "GH_", "PYTHON")) and k not in CONFIG_ENV}
         self.env.update({"HOME": str(self.home), "XDG_CONFIG_HOME": str(self.home / ".config"),
                          "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
                          "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
