@@ -22,6 +22,9 @@ Place necessary historical text under its module directory and list it below.
 | `apple/apple-html-mac-normal-20261106.md` | Apple HTML: normal Mac matrix for the latest Coordinator (2026-11-06) |
 | `apple/ios-perf-5730-final.md` | iOS 60 FPS optimization closeout and remaining performance limits (#5730) |
 | `apple/live-updates.md` | Live updates must not interrupt user actions (2026-10-31) |
+| `apple/ios-state-records.md` | iOS redraw work: data flow before it, root causes, staged plan, per-step push costs and the pre-#1046 follow-latest review (2026-11-04) |
+| `apple/live-activity-records.md` | Live Activity: build 92 avatar investigation and battery-investigation push counts (2026-11-02) |
+| `apple/mac-records.md` | Mac acceptance checklist review history and real-window roles and checklist rules (2026-11-01 to 2026-11-03, #403) |
 | `apple/persona-native-6152-acceptance.md` | Apple native naming migration acceptance (#6152) |
 | `apple/persona-native-6152-reversible-acceptance.md` | Apple reversible native-state compatibility acceptance (#6152) |
 | `assistant/assistant-rich-ui-predeployment-2026-11-06.md` | Main chat rich UI: pre-deployment acceptance |
