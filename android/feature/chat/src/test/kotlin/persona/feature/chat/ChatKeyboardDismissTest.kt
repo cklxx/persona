@@ -24,6 +24,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
@@ -46,8 +47,12 @@ import persona.core.contracts.Item
 import persona.core.contracts.SessionKey
 import persona.core.designsystem.AppStyle
 import persona.core.designsystem.ComposerFrame
+import persona.core.designsystem.HomeChrome
 import persona.core.designsystem.JPage
+import persona.core.designsystem.LocalHomeChrome
+import persona.core.designsystem.NavItem
 import persona.core.designsystem.PersonaTheme
+import persona.core.designsystem.icons.PhIcons
 
 /**
  * The conversation's messages under a focused composer (#3056): a tap on a reply's blank width puts the keyboard away,
@@ -145,5 +150,24 @@ class ChatKeyboardDismissTest {
         rule.waitForIdle()
         assertTrue(focused)
         assertNull("a scroll opens no menu", menu.target)
+    }
+
+    @Test fun tappingTheRealComposerKeepsItsFieldFocused() {
+        lateinit var composer: ChatComposerState
+        rule.setContent {
+            PersonaTheme(darkTheme = false, reduceMotion = true, style = AppStyle.Glass) {
+                composer = rememberChatComposerState()
+                CompositionLocalProvider(LocalHomeChrome provides HomeChrome(
+                    listOf(NavItem("home", "Home", PhIcons.House)), "home", onSelect = {}, leading = {})) {
+                    JPage("对话", bottomBar = {
+                        ChatComposer(SessionKey("box", "s1"), composer, working = false, sending = false, canClear = false,
+                            service = null, onSend = {}, onCommand = {}, onNotice = {})
+                    }) { _ -> }
+                }
+            }
+        }
+        rule.onNode(hasSetTextAction()).performTouchInput { click() }
+        rule.waitForIdle()
+        assertTrue(composer.focused)
     }
 }
