@@ -78,7 +78,6 @@ internal fun ShellChat(route: ChatRoute, session: ShellSession, navigator: Navig
     // The terminal comes up over the chat (iOS TerminalCover, #4339 C7), from ⋯, the work line or a request's Open terminal.
     var terminalOpen by rememberSaveable(route.machineId, route.sessionId) { mutableStateOf(false) }
     val resumer = remember(session) { SessionTerminalResumer({ session.sessions.sessions.value }, { session.agentsWiring.state.value.creation }) }
-    val handToPersona = rememberHandToPersona(wiring?.mainSender, navigator)
     var insertionFocused by remember { mutableStateOf(false) }
     var git by remember { mutableStateOf<persona.core.contracts.api.SessionGitStatus?>(null) }
     val cwd = metadata?.cwd.orEmpty()
@@ -91,6 +90,7 @@ internal fun ShellChat(route: ChatRoute, session: ShellSession, navigator: Navig
     fun open(p: FilesPane, path: String? = null, line: Int? = null) {
         insertionFocused = composer.focused; focus.clearFocus(); openedPath = path; openedLine = line; pane = p
     }
+    if (editor != null && storedComposer == null) return
     // ultracode's quota line (#582) reads this chat's hub
     androidx.compose.runtime.CompositionLocalProvider(persona.feature.chat.LocalUsageRead provides wiring?.usage) {
         Box(Modifier.fillMaxSize()) {
@@ -113,7 +113,6 @@ internal fun ShellChat(route: ChatRoute, session: ShellSession, navigator: Navig
                     onOpenAssistant = { navigator.navigate(persona.feature.chat.conversationRoute(it, assistant = true)) },
                     onConnectionDetails = { navigator.navigate(SettingsPageRoute(SettingsPage.Diagnostics)) },
                     files = session.files, ports = wiring?.ports, onOpenPath = if (filesAvailable) ({ path, line -> open(FilesPane.Files, path, line) }) else null,
-                    onHandToPersona = if (assistant) null else handToPersona,
                     onOpenTodo = { todoId -> navigator.navigate(persona.core.navigation.TodoDetailRoute(todoId)) },
                     // A model error the hub named on Persona's turn: Fix It opens what the home's readiness card would (MainReadiness.kt).
                     onFixModel = { action, launcher, manager ->
