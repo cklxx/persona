@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -161,13 +162,16 @@ class ChatKeyboardDismissTest {
                     listOf(NavItem("home", "Home", PhIcons.House)), "home", onSelect = {}, leading = {})) {
                     JPage("对话", bottomBar = {
                         ChatComposer(SessionKey("box", "s1"), composer, working = false, sending = false, canClear = false,
-                            service = null, onSend = {}, onCommand = {}, onNotice = {})
+                            service = null, onSend = {}, onCommand = {}, onNotice = {}, modeHint = "默认模式",
+                            accessory = { Text("建议操作", Modifier.testTag("suggestion")) })
                     }) { _ -> }
                 }
             }
         }
+        rule.onNodeWithTag("suggestion").assertDoesNotExist()
         rule.onNode(hasSetTextAction()).performTouchInput { click() }
         rule.waitForIdle()
         assertTrue(composer.focused)
+        rule.onNodeWithTag("suggestion").assertDoesNotExist()
     }
 }
