@@ -429,7 +429,14 @@ fun ComposerFrame(
     when (PersonaTheme.style) {
         AppStyle.Glass -> Column(modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp).floatingSurface(RoundedCornerShape(28.dp)).then(keepsKeyboard).padding(6.dp)) {
             accessory?.let { Column(Modifier.padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 2.dp), content = it) }
-            Row(verticalAlignment = Alignment.Bottom) {
+            if (expanded) {
+                Box(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 8.dp, vertical = 11.dp), contentAlignment = Alignment.CenterStart, content = field)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    leading?.invoke(this)
+                    Spacer(Modifier.weight(1f))
+                    trailing?.invoke(this)
+                }
+            } else Row(verticalAlignment = Alignment.Bottom) {
                 leading?.invoke(this)
                 Box(Modifier.weight(1f).heightIn(min = 44.dp).padding(horizontal = 8.dp, vertical = 11.dp), contentAlignment = Alignment.CenterStart, content = field)
                 trailing?.invoke(this)
@@ -438,7 +445,7 @@ fun ComposerFrame(
         AppStyle.Brief -> Column(modifier.fillMaxWidth().background(palette.background).then(keepsKeyboard).padding(horizontal = 12.dp, vertical = 8.dp)) {
             accessory?.let { Column(Modifier.padding(start = 4.dp, end = 4.dp, bottom = 6.dp), content = it) }
             Row(verticalAlignment = Alignment.Bottom) {
-                leading?.let { Row(Modifier.padding(bottom = 2.dp)) { it() }; Spacer(Modifier.width(4.dp)) }
+                if (!expanded) leading?.let { Row(Modifier.padding(bottom = 2.dp)) { it() }; Spacer(Modifier.width(4.dp)) }
                 Row(
                     Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp)).background(palette.surface).padding(start = 18.dp, end = 4.dp),
                     verticalAlignment = Alignment.Bottom,
@@ -447,18 +454,26 @@ fun ComposerFrame(
                     trailing?.let { Row(Modifier.padding(vertical = 4.dp)) { it() } }
                 }
             }
+            if (expanded && leading != null) Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                leading?.invoke(this)
+                Spacer(Modifier.weight(1f))
+            }
         }
         // The board's grey under a rule, the field a white ticket on it: no white plate across the bottom.
         AppStyle.Board -> Column(modifier.fillMaxWidth().background(palette.background).drawBehind { drawLine(palette.line, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }.then(keepsKeyboard).padding(10.dp)) {
             accessory?.let { Column(Modifier.padding(bottom = 8.dp), content = it) }
             Row(verticalAlignment = Alignment.Bottom) {
-                leading?.invoke(this)
+                if (!expanded) leading?.invoke(this)
                 Box(
                     Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(8.dp)).background(palette.surface)
                         .border(1.dp, palette.line, RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 11.dp),
                     contentAlignment = Alignment.CenterStart, content = field,
                 )
                 trailing?.let { Spacer(Modifier.width(8.dp)); it() }
+            }
+            if (expanded && leading != null) Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                leading?.invoke(this)
+                Spacer(Modifier.weight(1f))
             }
         }
     }
