@@ -44,7 +44,10 @@ class FirstMessageTest {
     }
 
     @Before fun setup() = AssistantManagerChoice.choose("hub", null, "assistant")
-    @After fun cleanup() = AssistantManagerChoice.reset()
+    @After fun cleanup() {
+        AssistantManagerChoice.reset()
+        persona.feature.chat.ForwardPlacements.home = emptyList()
+    }
 
     private inner class Hub : AssistantRepository, MessageSender, MainConversationSender {
         override val assistant = MutableStateFlow(AssistantSnapshot(mainSession = main, conversations = listOf(
@@ -137,6 +140,28 @@ class FirstMessageTest {
         assertEquals(listOf(SessionKey("mac", "new-1") to "Plan a weekend in the mountains"), hub.sent)
         rule.onNodeWithText("chat:new-1").assertExists()
         assertNull(kept())
+    }
+
+    @Test fun aForwardedFailureKeepsItsCardWithoutPlacingItAgain() {
+        val resources = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>().resources
+        val ref = persona.feature.chat.ForwardMessage.ref("Original reply",
+            persona.feature.chat.ForwardMessage.Source(SessionKey("mac", "source"), "a#1",
+                persona.feature.chat.ForwardMessage.Role.Agent, "Claude", "Project"), resources)
+        persona.feature.chat.ForwardPlacements.home = listOf(ref)
+        val hub = mount(Hub().apply { refuse = true })
+        rule.onNodeWithContentDescription("Send").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("assistant-first-failed").assertExists()
+        rule.onNodeWithText("Forwarded from Claude · Project").assertExists()
+        rule.onNodeWithText("Original reply").assertExists()
+        assertTrue("The failed bubble owns the only forward", persona.feature.chat.ForwardPlacements.home.isEmpty())
+
+        rule.onNodeWithText("Resend").performClick()
+        rule.waitUntil(5_000) { hub.sent.isNotEmpty() }
+        rule.waitForIdle()
+        assertEquals(listOf(SessionKey("mac", "new-1") to
+            persona.feature.chat.forwardMessage("", listOf(ref), resources).trim()), hub.sent)
+        assertTrue("Retry leaves no forward for a later chat", persona.feature.chat.ForwardPlacements.home.isEmpty())
     }
 
     @Test fun aKeptFailureComesBackWithThePage() {

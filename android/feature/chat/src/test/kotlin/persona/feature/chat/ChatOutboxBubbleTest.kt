@@ -64,7 +64,7 @@ class ChatOutboxBubbleTest {
     @Test fun theLongPressSaysDontSendOnGlass() {
         val waiting = MessageTarget("m1", "words", true, "words", DeliveryState.WaitingForNetwork)
         fun last(extras: MessageExtras, target: MessageTarget = waiting) =
-            messageMenuActions(target, writes = true, handOff = false, res, extras) {}.last().label
+            messageMenuActions(target, writes = true, forward = false, handOff = false, res, extras) {}.last().label
         assertEquals("Don't send", last(MessageExtras(delete = true, dontSend = true)))
         assertEquals("Cancel send", last(MessageExtras(delete = true)))
         assertEquals("Delete", last(MessageExtras(delete = true, dontSend = true), waiting.copy(pending = DeliveryState.Refused)))
@@ -127,7 +127,7 @@ class ChatOutboxBubbleTest {
         rule.onNodeWithText("Delete").performClick()
         assertEquals(listOf(DeliveryAction.Delete), done)
         val labels = messageMenuActions(MessageTarget("m2", "Refused words", true, "Refused words", DeliveryState.Refused),
-            writes = false, handOff = false, res, MessageExtras(delete = true)) {}.map { it.label }
+            writes = false, forward = false, handOff = false, res, MessageExtras(delete = true)) {}.map { it.label }
         assertTrue(labels.contains("Copy"))
         assertFalse(labels.contains("Edit"))
     }

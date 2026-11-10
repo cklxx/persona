@@ -95,7 +95,7 @@ class MessagePointerMenuShotsTest {
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
                 PersonaTheme(darkTheme = dark, reduceMotion = true, style = style) {
                     val window = LocalWindowInfo.current.containerSize
-                    val actions = messageMenuActions(MessageTarget("user#1", "message", user = true), writes = true,
+                    val actions = messageMenuActions(MessageTarget("user#1", "message", user = true), writes = true, forward = false,
                         handOff = true, LocalResources.current, MessageExtras(rewind = true)) {}
                     Box(Modifier.fillMaxSize().background(PersonaTheme.palette.background).testTag("host")) {
                         JPointerMenu(Offset(window.width * anchorCase.x, window.height * anchorCase.y), {},

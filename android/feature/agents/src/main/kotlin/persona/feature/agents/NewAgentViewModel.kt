@@ -33,9 +33,11 @@ internal data class AgentSpacePreset(val machineId: String, val workspaceId: Str
 
 /**
  * What a caller fills in ahead (the knowledge base's "Open Agent"): [machineId] and [cwd] are picked when that machine is
- * online, [prompt] starts the first message; all of it can still be changed.
+ * online, [prompt] starts the first message; all of it can still be changed. [context] goes before the first message as it
+ * is (a forwarded message's block, #3901).
  */
-internal data class NewAgentPrefill(val machineId: String? = null, val cwd: String? = null, val prompt: String? = null)
+internal data class NewAgentPrefill(val machineId: String? = null, val cwd: String? = null, val prompt: String? = null,
+    val context: String? = null)
 
 /** The hub's "New Agent" model use (docs/assistant/model-config.md), read once per form. */
 internal sealed interface NewAgentModelConfig {
@@ -77,6 +79,8 @@ internal data class NewAgentState(
     val browsing: Boolean = false,
     val browsePath: String = "",
     val prompt: String = "",
+    /** A block that goes before the first message (a forward, #3901), drawn over it as a card; null: none. */
+    val context: String? = null,
     val loading: Boolean = false,
     val starting: Boolean = false,
     val pending: AgentStartOperation? = null,
@@ -274,7 +278,7 @@ internal class NewAgentViewModel(
                         recentSetups = recents)
                 } else {
                     val last = store.lastMachine(service.scope)
-                    mutable.update { it.copy(initialized = true, prompt = prefill?.prompt.orEmpty(), recentSetups = recents) }
+                    mutable.update { it.copy(initialized = true, prompt = prefill?.prompt.orEmpty(), context = prefill?.context, recentSetups = recents) }
                     machines.collect { list ->
                         if (state.value.machineId.isEmpty() && !state.value.locked) {
                             val space = state.value.space
@@ -563,7 +567,7 @@ internal class NewAgentViewModel(
         if (previous == null && (current.selection.cwd.isBlank() || (current.selection.launcher.isBlank() && !current.following) ||
                 machines.value.none { it.id == current.machineId && it.online } ||
                 (current.space != null && current.space.machineId != current.machineId) ||
-                (current.promptRequired && current.prompt.isBlank()) || current.attachmentsHold != null)) return
+                (current.promptRequired && current.prompt.isBlank() && current.context == null) || current.attachmentsHold != null)) return
         mutable.update { it.copy(starting = true, error = null) }
         viewModelScope.launch {
             try {
@@ -596,13 +600,15 @@ internal class NewAgentViewModel(
      */
     private fun newOperation(current: NewAgentState, agentType: String, worktree: WorktreeAdded? = null): AgentStartOperation {
         val typed = current.prompt.trim().takeIf { it.isNotEmpty() }
+        // A forward goes first, what is typed after it (iOS NewChat's contextBody); the name comes from what is typed.
+        val forwarded = current.context?.takeIf { it.isNotBlank() }
         val async = sender != null && current.firstMessageAfterStart
         // The photos and the uploaded files go with the first message as the composer writes them (#2321); the tab is
         // named from what was typed, as on iOS.
         val first = if (async && current.attachments.isNotEmpty())
-            NewAgentAttachments.firstMessage(current.prompt.takeIf(String::isNotBlank).orEmpty(), current.attachments,
-                uploads?.photosOnly?.invoke().orEmpty(), uploads?.filesOnly?.invoke().orEmpty()).takeIf { it.isNotEmpty() }
-        else typed
+            NewAgentAttachments.firstMessage(listOfNotNull(forwarded, current.prompt.takeIf { it.isNotBlank() }).joinToString("\n\n"),
+                current.attachments, uploads?.photosOnly?.invoke().orEmpty(), uploads?.filesOnly?.invoke().orEmpty()).takeIf { it.isNotEmpty() }
+        else listOfNotNull(forwarded, typed).joinToString("\n\n").takeIf { it.isNotEmpty() }
         val efforts = current.modelEfforts
         // A catalog workspace picked (#7259): the start goes into it, by its engine's id, in its folder; with a worktree
         // made from it (#8856), into the workspace made for the worktree, on the same engine.
@@ -618,7 +624,7 @@ internal class NewAgentViewModel(
             else current.providerEffort.takeIf { it.isNotEmpty() && it in current.providerEfforts }
         val request = AgentStartRequest(
             current.machineId, worktree?.path ?: workspace?.cwd ?: current.selection.cwd, current.selection.launcher,
-            typed.takeUnless { async }, mode, effort,
+            first.takeUnless { async }, mode, effort,
             workspaceId, agentType.takeIf { it != "claude" }, async = true.takeIf { async },
             nameHint = typed.takeIf { async }, model = current.sentModel,
             ultracode = true.takeIf { current.ultracode && agentType == "claude" },
@@ -849,7 +855,7 @@ internal class NewAgentViewModel(
     suspend fun acknowledge() {
         try {
             store.pending(service.scope, null)
-            mutable.update { it.copy(pending = null, created = null, prompt = "", providerMode = "", providerEffort = "") }
+            mutable.update { it.copy(pending = null, created = null, prompt = "", context = null, providerMode = "", providerEffort = "") }
             clearAttachments()
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { mutable.update { it.copy(error = AgentText(R.string.agents_new_error_cleanup)) } }
