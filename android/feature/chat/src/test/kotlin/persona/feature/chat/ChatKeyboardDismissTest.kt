@@ -29,6 +29,7 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.unit.dp
@@ -172,6 +173,11 @@ class ChatKeyboardDismissTest {
         rule.onNode(hasSetTextAction()).performTouchInput { click() }
         rule.waitForIdle()
         assertTrue(composer.focused)
-        rule.onNodeWithTag("suggestion").assertDoesNotExist()
+        rule.onNodeWithTag("suggestion").assertExists()
+        rule.onNode(hasSetTextAction()).performTextInput("a")
+        rule.waitForIdle()
+        assertEquals("a", composer.value.text)
+        assertTrue(composer.focused)
+        rule.onNodeWithTag("suggestion").assertExists()
     }
 }
