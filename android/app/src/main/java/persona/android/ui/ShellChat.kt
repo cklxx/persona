@@ -12,6 +12,7 @@ import persona.core.contracts.SessionKey
 import persona.core.contracts.api.*
 import persona.core.designsystem.AppFeedback
 import persona.core.navigation.*
+import persona.feature.assistant.LocalAssistantSidebarHost
 import persona.feature.chat.*
 import persona.feature.files.*
 import kotlinx.coroutines.CancellationException
@@ -59,7 +60,7 @@ internal fun ShellChat(route: ChatRoute, session: ShellSession, navigator: Navig
     val metadata = sessions.firstOrNull { it.key == key }
     val waiting = rememberWaitingRequests(session, sessions)
     val assistant = route.kind == ConversationKind.Assistant || metadata?.assistant == true
-    val archivedSession = archivedHistorySession(assistantSnapshot, key, assistant)
+    val archivedSession = rememberArchivedHistorySession(assistantSnapshot, key, assistant, wiring?.scope?.hubId)
     val historyReadOnly = archivedSession != null
     val editor = rememberChatDraftEditor(if (historyReadOnly) null else wiring, key)
     val storedComposer by (editor?.composer ?: remember { MutableStateFlow<ChatComposerState?>(null) }).collectAsStateWithLifecycle()
@@ -129,6 +130,39 @@ internal fun ShellChat(route: ChatRoute, session: ShellSession, navigator: Navig
                 connection = connectionState)
         }
     }
+}
+
+private data class ArchivedHistory(val managerId: String? = null, val session: persona.core.contracts.Session? = null) {
+    fun reduce(snapshot: AssistantSnapshot, key: SessionKey, assistant: Boolean): ArchivedHistory {
+        if (!assistant) return ArchivedHistory()
+        val observed = snapshot.conversations.firstOrNull { it.key == key }
+        return when {
+            managerId == null && observed?.archived == true -> ArchivedHistory(snapshot.managerId, observed)
+            snapshot.managerId != managerId -> this
+            observed != null -> copy(session = observed.takeIf { it.archived })
+            else -> this
+        }
+    }
+}
+
+@Composable
+internal fun rememberArchivedHistorySession(
+    snapshot: AssistantSnapshot,
+    key: SessionKey,
+    assistant: Boolean,
+    hubId: String? = null,
+): persona.core.contracts.Session? {
+    var history by remember(key) { mutableStateOf(ArchivedHistory().reduce(snapshot, key, assistant)) }
+    val reduced = history.reduce(snapshot, key, assistant)
+    val restoredState = reduced.managerId?.let { LocalAssistantSidebarHost.current?.restoredState(hubId, it) }
+    val restored = restoredState?.value.orEmpty()
+    val confirmed = reduced.managerId == snapshot.managerId &&
+        snapshot.conversations.any { it.key == key && !it.archived }
+    SideEffect {
+        history = reduced
+        if (confirmed) restoredState?.let { it.value = it.value - key }
+    }
+    return reduced.session.takeUnless { key in restored }
 }
 
 internal fun archivedHistorySession(snapshot: AssistantSnapshot, key: SessionKey, assistant: Boolean): persona.core.contracts.Session? =
