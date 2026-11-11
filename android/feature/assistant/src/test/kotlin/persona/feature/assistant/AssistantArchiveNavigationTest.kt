@@ -4,6 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
@@ -16,6 +17,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.navigation3.runtime.NavKey
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -28,6 +30,7 @@ import persona.core.contracts.SessionKey
 import persona.core.contracts.api.*
 import persona.core.designsystem.AppFeedback
 import persona.core.designsystem.LocalAppFeedback
+import persona.core.designsystem.PersonaTheme
 import persona.core.navigation.AppTab
 import persona.core.navigation.Navigator
 
@@ -143,6 +146,47 @@ class AssistantArchiveNavigationTest {
         assertEquals(null, chatOptions?.readOnlyNote)
         assertEquals(null, chatOptions?.historySession)
         rule.onNodeWithText("刷新失败").assertDoesNotExist()
+    }
+
+    @Test fun sharedSidebarRestoreMakesOpenEmbeddedChatWritableWhenRefreshFails() {
+        val hub = Hub()
+        hub.archived += first.key
+        hub.assistant.value = hub.assistant.value.copy(conversations = hub.assistant.value.conversations.map {
+            if (it.key == first.key) it.copy(archived = true) else it
+        })
+        hub.failRefresh = true
+        val host = AssistantSidebarHost()
+        rule.setContent {
+            CompositionLocalProvider(LocalAssistantSidebarHost provides host) {
+                PersonaTheme(reduceMotion = true) {
+                    val snapshot = hub.assistant.collectAsStateWithLifecycle().value
+                    AssistantScreen(navigator, hub, hub, startConversation = { error("Unexpected creation") },
+                        requestedSession = first.key, management = hub, composerService = null,
+                        assistantChatContent = { key, options -> chatOptions = options; Text("chat:${key.sessionId}") })
+                    if (host.opened.value) {
+                        AssistantSidebarContent(snapshot, hub, emptySet(), first.key, rememberCoroutineScope(), demo = false,
+                            management = hub, onOpen = {}, onAction = {}, onSettings = {}, onInbox = {}, onKnowledge = {},
+                            onTodos = null, todoCount = 0, showTodos = false, inboxCount = 0, settingsCount = 0,
+                            settingsDot = false, settingsBadge = null, pages = emptyList(), onPage = {},
+                            onTogglePin = {}, onRetired = {})
+                    }
+                }
+            }
+        }
+        rule.onNodeWithText("chat:a").assertExists()
+        assertEquals("此对话已归档。恢复后才能发送消息。", chatOptions?.readOnlyNote)
+        assertEquals(true, chatOptions?.historySession?.archived)
+
+        rule.runOnIdle { host.opened.value = true }
+        rule.onNodeWithText("已归档对话").performClick()
+        rule.onNodeWithText("恢复").performClick()
+        rule.waitForIdle()
+
+        assertEquals(emptyList<SessionKey>(), hub.archived)
+        assertEquals(true, hub.assistant.value.conversations.first { it.key == first.key }.archived)
+        assertEquals(null, chatOptions?.readOnlyNote)
+        assertEquals(null, chatOptions?.historySession)
+        rule.onNodeWithText(first.title!!).assertExists()
     }
 
     @Test fun theMainConversationStillHasNoArchiveAction() {

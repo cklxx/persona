@@ -127,7 +127,9 @@ fun AssistantScreen(
         managers = reportedRoster.managers.map { it.copy(online = false) },
     )
     val managerChoice by persona.core.contracts.api.AssistantManagerChoice.current.collectAsStateWithLifecycle()
-    var restored by remember(managerChoice.hubId, managerChoice.shown) { mutableStateOf(emptySet<SessionKey>()) }
+    val sharedSidebar = LocalAssistantSidebarHost.current
+    val localRestored = remember(managerChoice.hubId, managerChoice.shown) { mutableStateOf(emptySet<SessionKey>()) }
+    var restored by (sharedSidebar?.restoredState(managerChoice.hubId, managerChoice.shown) ?: localRestored)
     // A late repository emission is never shown under another assistant.
     val snapshot = (receivedSnapshot.takeIf { it.managerId == managerChoice.shown }
         ?: persona.core.contracts.api.AssistantSnapshot(manager = managerChoice.manager, managerId = managerChoice.shown)).let { current ->
@@ -142,7 +144,6 @@ fun AssistantScreen(
     val outbox by (mainConversationSender?.outbox ?: messageSender.outbox).collectAsStateWithLifecycle()
     val mainMessages = if (managerChoice.manager == null) outbox.filter { (it.mainTarget || it.session == PendingMainConversation) && (it.session == PendingMainConversation || it.session == snapshot.mainSession) } else emptyList()
     val scope = rememberCoroutineScope()
-    val sharedSidebar = LocalAssistantSidebarHost.current
     val drawerState: MutableState<Boolean> = sharedSidebar?.opened ?: rememberSaveable { mutableStateOf(false) }
     var drawerOpen by drawerState
     var sidebarVisible by rememberSaveable { mutableStateOf(true) }

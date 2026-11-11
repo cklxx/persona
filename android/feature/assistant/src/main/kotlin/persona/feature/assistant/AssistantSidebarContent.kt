@@ -50,7 +50,8 @@ fun AssistantSidebarContent(
 ) {
     val choice by AssistantManagerChoice.current.collectAsStateWithLifecycle()
     val scopedManagement = remember(management, choice.hubId, choice.shown) { management?.forManager(choice.shown) }
-    var restored by remember(scopedManagement) { mutableStateOf(emptySet<SessionKey>()) }
+    val localRestored = remember(choice.hubId, choice.shown) { mutableStateOf(emptySet<SessionKey>()) }
+    var restored by (LocalAssistantSidebarHost.current?.restoredState(choice.hubId, choice.shown) ?: localRestored)
     val received = (snapshot.takeIf { it.managerId == choice.shown }
         ?: AssistantSnapshot(manager = choice.manager, managerId = choice.shown)).let { current ->
         if (restored.isEmpty()) current else current.copy(conversations = current.conversations.map {
