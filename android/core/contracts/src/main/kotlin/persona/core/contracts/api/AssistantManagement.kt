@@ -38,6 +38,8 @@ interface AssistantManagement {
      * kept; a new message to it brings it back. The hub refuses the main conversation.
      */
     suspend fun archiveConversation(session: SessionKey): Unit = throw UnsupportedOperationException("Archive unavailable")
+    /** Restores an archived conversation (POST /api/v1/assistant/conversations/{id}/unarchive) to the normal history. */
+    suspend fun unarchiveConversation(session: SessionKey): Unit = throw UnsupportedOperationException("Unarchive unavailable")
     /**
      * Puts the main conversation away for a new one (POST /api/v1/assistant/main/new, hub feature `assistant_main_new`):
      * it is renamed and archived, and the next message to the main conversation starts a new one. [carrySummary] brings

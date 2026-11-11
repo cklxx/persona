@@ -116,6 +116,15 @@ class AssistantTest {
         assertEquals(listOf(kept), result.recent)
     }
 
+    @Test fun archivedProjectionIsDeduplicatedAndNewestFirstWithoutChangingNormalGroups() {
+        val kept = Session(machineId = "demo", sessionId = "kept", title = "留着", updatedAt = "2026-11-10T00:00:00Z")
+        val older = Session(machineId = "demo", sessionId = "older", title = "旧的", archived = true, updatedAt = "2026-11-09T00:00:00Z")
+        val newer = Session(machineId = "demo", sessionId = "newer", title = "新的", archived = true, updatedAt = "2026-11-11T00:00:00Z")
+        val snapshot = AssistantSnapshot(null, listOf(older, kept, newer, newer.copy(title = "重复")))
+        assertEquals(listOf(newer, older), archivedConversations(snapshot))
+        assertEquals(listOf(kept), conversationGroups(snapshot, "", emptySet(), words).recent)
+    }
+
     @Test fun theRecentGroupShowsThirtyThenTheRest() {
         val recent = (1..45).map { Session(machineId = "m", sessionId = "s$it", title = "对话 $it") }
         val folded = recentRows(recent, query = "", showAll = false)

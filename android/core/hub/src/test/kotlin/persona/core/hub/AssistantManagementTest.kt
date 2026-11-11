@@ -102,14 +102,18 @@ class AssistantManagementTest {
         }
     }
 
-    @Test fun archivingPostsToTheConversationsArchiveRoute() = runBlocking {
+    @Test fun archiveAndRestorePostToTheirConversationRoutes() = runBlocking {
         MockWebServer().use { server ->
             val api = HttpAssistantManagement(server.url("/").toString(), "test-token", OkHttpClient())
-            server.enqueue(MockResponse().setBody("""{"ok":true,"archived":true}"""))
-            api.archiveConversation(SessionKey("demo", "side-1"))
-            val archive = server.takeRequest()
-            assertEquals("POST", (archive.method).zhAny())
-            assertEquals("/api/v1/assistant/conversations/side-1/archive", (archive.path).zhAny())
+            for (action in listOf("archive", "unarchive")) {
+                server.enqueue(MockResponse().setBody("""{"ok":true}"""))
+                if (action == "archive") api.archiveConversation(SessionKey("demo", "side-1"))
+                else api.unarchiveConversation(SessionKey("demo", "side-1"))
+                val request = server.takeRequest()
+                assertEquals("POST", request.method)
+                assertEquals("/api/v1/assistant/conversations/side-1/$action", request.path)
+                assertEquals("{}", request.body.readUtf8())
+            }
         }
     }
 

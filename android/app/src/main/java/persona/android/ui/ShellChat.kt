@@ -55,10 +55,13 @@ internal fun ShellChat(route: ChatRoute, session: ShellSession, navigator: Navig
     }
     val key = SessionKey(route.machineId, route.sessionId)
     val sessions by session.sessions.sessions.collectAsStateWithLifecycle()
+    val assistantSnapshot by session.assistant.assistant.collectAsStateWithLifecycle()
     val metadata = sessions.firstOrNull { it.key == key }
     val waiting = rememberWaitingRequests(session, sessions)
     val assistant = route.kind == ConversationKind.Assistant || metadata?.assistant == true
-    val editor = rememberChatDraftEditor(wiring, key)
+    val archivedSession = archivedHistorySession(assistantSnapshot, key, assistant)
+    val historyReadOnly = archivedSession != null
+    val editor = rememberChatDraftEditor(if (historyReadOnly) null else wiring, key)
     val storedComposer by (editor?.composer ?: remember { MutableStateFlow<ChatComposerState?>(null) }).collectAsStateWithLifecycle()
     val draftError by (editor?.error ?: remember { MutableStateFlow<Int?>(null) }).collectAsStateWithLifecycle()
     val composer = storedComposer ?: rememberChatComposerState()
@@ -90,7 +93,7 @@ internal fun ShellChat(route: ChatRoute, session: ShellSession, navigator: Navig
                 onFiles = if (filesAvailable) ({ open(FilesPane.Files) }) else null,
                 onGit = if (filesAvailable && git?.isRepo == true) ({ open(FilesPane.Git) }) else null,
                 gitLabel = "Git${git?.files?.size?.takeIf { it > 0 }?.let { " · $it" }.orEmpty()}",
-                actions = actions, connection = wiring?.connection ?: session.connection, requestId = requestId, covered = pane != null,
+                actions = actions.takeUnless { historyReadOnly }, connection = wiring?.connection ?: session.connection, requestId = requestId, covered = pane != null,
                 onOpenSession = { navigator.navigate(ChatRoute(it.machineId, it.sessionId)) },
                 waiting = waiting,
                 onOpenRequest = { chat, request ->
@@ -103,9 +106,16 @@ internal fun ShellChat(route: ChatRoute, session: ShellSession, navigator: Navig
                 onHandToPersona = if (assistant) null else handToPersona,
                 onOpenTodo = { todoId -> navigator.navigate(persona.core.navigation.TodoDetailRoute(todoId)) }),
             renderStyle = if (assistant) ChatRenderStyle.Assistant else ChatRenderStyle.Agent,
-            composerState = composer, composerService = wiring?.composer,
+            historyReadOnly = historyReadOnly,
+            historyFooter = archivedSession?.let { {
+                persona.core.designsystem.JNotice(
+                    androidx.compose.ui.res.stringResource(persona.feature.assistant.R.string.assistant_archived_read_only),
+                    status = persona.core.designsystem.Status.Offline)
+            } },
+            historySession = archivedSession,
+            composerState = composer, composerService = wiring?.composer.takeUnless { historyReadOnly },
             onDraftChanged = editor?.let { it::changed },
-            statusBindings = ChatStatusBindings(recovery = wiring?.recovery, draftSaveError = draftError?.let { androidx.compose.ui.res.stringResource(it) }),
+            statusBindings = ChatStatusBindings(recovery = wiring?.recovery.takeUnless { historyReadOnly }, draftSaveError = draftError?.let { androidx.compose.ui.res.stringResource(it) }),
             onContextCleared = { navigator.navigate(ChatRoute(it.machineId, it.sessionId)) })
         if (pane != null && filesAvailable) {
             BackHandler { pane = null; openedPath = null; openedLine = null }
@@ -120,6 +130,9 @@ internal fun ShellChat(route: ChatRoute, session: ShellSession, navigator: Navig
         }
     }
 }
+
+internal fun archivedHistorySession(snapshot: AssistantSnapshot, key: SessionKey, assistant: Boolean): persona.core.contracts.Session? =
+    snapshot.conversations.firstOrNull { it.key == key && it.archived }?.takeIf { assistant }
 
 /**
  * The cards agents wait on you with, as the Persona home's "Needs you now" lists them (the same `needsYou`, all of

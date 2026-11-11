@@ -38,6 +38,23 @@ class InboxAssistantTransportTest {
         }
     }
 
+    @Test fun onlyHistoryRefreshIncludesArchivedConversations() = runBlocking {
+        MockWebServer().use { server ->
+            val transport = HttpInboxAssistantTransport("scope", server.url("/").toString(), "test-token", OkHttpClient())
+            server.enqueue(MockResponse().setBody("{}"))
+            transport.assistantHistoryOf("work")
+            val history = server.takeRequest().requestUrl!!
+            assertEquals("/api/v1/assistant", history.encodedPath)
+            assertEquals("1", history.queryParameter("archived"))
+            assertEquals("work", history.queryParameter(ManagerQuery))
+            server.enqueue(MockResponse().setBody("{}"))
+            transport.assistantOf("work")
+            val ordinary = server.takeRequest().requestUrl!!
+            assertNull(ordinary.queryParameter("archived"))
+            assertEquals("work", ordinary.queryParameter(ManagerQuery))
+        }
+    }
+
     @Test fun conversationNamesUseTheCorrectAccountAndCursor() = runBlocking {
         MockWebServer().use { server ->
             val transport = HttpInboxAssistantTransport("scope", server.url("/").toString(), "test-token", OkHttpClient())

@@ -83,7 +83,8 @@ object ChatWiringModule {
                     embedded = options.embedded, showTopBar = options.showTopBar,
                     // The conversation's manager is offline: history only, its 最后同步于 where the composer was.
                     historyReadOnly = options.readOnlyNote != null,
-                    historyFooter = options.readOnlyNote?.let { note -> { persona.core.designsystem.JNotice(note, status = persona.core.designsystem.Status.Offline) } })
+                    historyFooter = options.readOnlyNote?.let { note -> { persona.core.designsystem.JNotice(note, status = persona.core.designsystem.Status.Offline) } },
+                    historySession = options.historySession)
             }
             CompositionLocalProvider(LocalAssistantHost provides host) { key(active.scope.path) { content() } }
         }
@@ -145,6 +146,7 @@ private class RoutedAssistantManagement(
     override suspend fun endConversation(session: SessionKey) = api().endConversation(session)
     override suspend fun compactConversation(session: SessionKey) = api().compactConversation(session)
     override suspend fun archiveConversation(session: SessionKey) = api().archiveConversation(session)
+    override suspend fun unarchiveConversation(session: SessionKey) = api().unarchiveConversation(session)
     override suspend fun newMainConversation(carrySummary: Boolean, expect: String?) =
         api().newMainConversation(carrySummary, expect)
     override suspend fun tasks() = api().tasks()

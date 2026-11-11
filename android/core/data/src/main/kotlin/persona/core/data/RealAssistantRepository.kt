@@ -159,7 +159,7 @@ class RealAssistantRepository(
             ++refreshVersion
         }
         // Network calls never hold the page/cache mutex: a slow manager cannot block switching away.
-        val data = request.transport.assistantOf(request.owner)
+        val data = request.transport.assistantHistoryOf(request.owner)
         // the names are asked for again only when the leaders or their titles change (as the web does)
         val fresh = decode(data, request)
         val held = current.value.takeIf { it.managerId == request.owner }

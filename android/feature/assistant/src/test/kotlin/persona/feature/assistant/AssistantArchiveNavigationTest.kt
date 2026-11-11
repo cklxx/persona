@@ -5,6 +5,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
@@ -37,6 +40,7 @@ class AssistantArchiveNavigationTest {
     private val first = Session(machineId = "hub", sessionId = "a", title = "第一个任务")
     private val second = Session(machineId = "hub", sessionId = "b", title = "第二个任务")
     private val navigations = mutableListOf<Any>()
+    private var chatOptions: AssistantChatOptions? = null
     private val navigator = object : Navigator {
         override fun navigate(key: NavKey) { navigations += key }
         override fun back() { navigations += "back" }
@@ -56,7 +60,7 @@ class AssistantArchiveNavigationTest {
             }) {
                 AssistantScreen(navigator, hub, hub, startConversation = { error("Unexpected creation") },
                     requestedSession = active.key, management = hub, composerService = null,
-                    chatContent = { Text("chat:${it.sessionId}") })
+                    assistantChatContent = { key, options -> chatOptions = options; Text("chat:${key.sessionId}") })
                 if (error.value.isNotEmpty()) Text(error.value)
             }
         }
@@ -109,6 +113,38 @@ class AssistantArchiveNavigationTest {
         assertTrue(navigations.isEmpty())
     }
 
+    @Test fun archivedConversationOpensReadOnlyAndRestoresToNormalHistory() {
+        val hub = show()
+        archiveFirst()
+        rule.onNodeWithText("已归档对话").performClick()
+        rule.onNode(hasText(first.title!!) and hasAnyAncestor(hasTestTag("archived-conversations"))).performClick()
+        rule.onNodeWithText("chat:a").assertExists()
+        assertEquals("此对话已归档。恢复后才能发送消息。", chatOptions?.readOnlyNote)
+        assertEquals(true, chatOptions?.historySession?.archived)
+
+        rule.onNodeWithContentDescription("对话列表").performClick()
+        rule.onNodeWithText("已归档对话").performClick()
+        rule.onNodeWithText("恢复").performClick()
+        rule.onNodeWithText(first.title!!).performClick()
+        assertEquals(emptyList<SessionKey>(), hub.archived)
+        assertEquals(null, chatOptions?.readOnlyNote)
+        assertEquals(null, chatOptions?.historySession)
+    }
+
+    @Test fun restoredConversationStaysUsableWhenRefreshFails() {
+        val hub = show()
+        archiveFirst()
+        hub.failRefresh = true
+        rule.onNodeWithText("已归档对话").performClick()
+        rule.onNodeWithText("恢复").performClick()
+        rule.onNodeWithText(first.title!!).performClick()
+        assertEquals(emptyList<SessionKey>(), hub.archived)
+        rule.onNodeWithText("chat:a").assertExists()
+        assertEquals(null, chatOptions?.readOnlyNote)
+        assertEquals(null, chatOptions?.historySession)
+        rule.onNodeWithText("刷新失败").assertDoesNotExist()
+    }
+
     @Test fun theMainConversationStillHasNoArchiveAction() {
         show()
         rule.onAllNodesWithContentDescription("对话操作")[0].performClick()
@@ -120,12 +156,20 @@ class AssistantArchiveNavigationTest {
         override val outbox = MutableStateFlow(emptyList<OutboxMessage>())
         val archived = mutableListOf<SessionKey>()
         var fail = false
+        var failRefresh = false
         override suspend fun archiveConversation(session: SessionKey) {
             check(!fail) { "归档失败" }
             archived += session
         }
+        override suspend fun unarchiveConversation(session: SessionKey) {
+            check(!fail) { "恢复失败" }
+            archived -= session
+        }
         override suspend fun refresh() {
-            assistant.value = assistant.value.copy(conversations = assistant.value.conversations.filter { it.key !in archived })
+            check(!failRefresh) { "刷新失败" }
+            assistant.value = assistant.value.copy(conversations = assistant.value.conversations.map {
+                it.copy(archived = it.key in archived)
+            })
         }
         override suspend fun warm() = Unit
         override suspend fun send(session: SessionKey, text: String, clientMessageId: String, clearDraft: String?) = error("Unexpected send")

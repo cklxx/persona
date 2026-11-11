@@ -86,6 +86,8 @@ interface InboxAssistantTransport {
      * step 4): what a message was written for is where it goes.
      */
     suspend fun assistantOf(manager: String?): JsonObject = assistant()
+    /** The history refresh includes archived conversations; configuration and creation reads do not. */
+    suspend fun assistantHistoryOf(manager: String?): JsonObject = assistantOf(manager)
     /**
      * The directions of one manager (null: the default), `GET /api/v1/assistant/leaders`: `{leaders: [{id, name, ended?}]}`
      * (#3519, #3695). A transport without it answers none, and the drawer shows the leaders' titles.

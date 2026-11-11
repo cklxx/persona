@@ -87,6 +87,7 @@ class AppServices @Inject constructor(
     private val preferences: AgentsPreferences,
     private val agentsWiring: persona.feature.agents.AgentsWiring,
     private val machineManagement: MachineManagement,
+    owner: persona.android.di.ChatDataOwner,
     private val stacks: persona.android.di.GroupStacks,
     private val hubGroups: HubGroups,
     private val hubUpdates: persona.core.contracts.api.HubUpdates,
@@ -106,6 +107,8 @@ class AppServices @Inject constructor(
     }
     private val mutableSession = MutableStateFlow<ShellSession?>(null)
     val session = mutableSession.asStateFlow()
+    /** The selected group's management API for the sidebar, which lives outside AssistantAppHost. */
+    internal val assistantWiring = owner.wiring
     private val mode = app.getSharedPreferences("app-shell-mode", Application.MODE_PRIVATE)
     private var demoJob: Job? = null
     internal val feedback = FeedbackGate(connection = { mutableSession.value?.connection?.state?.value ?: ConnectionState.WaitingForNetwork },

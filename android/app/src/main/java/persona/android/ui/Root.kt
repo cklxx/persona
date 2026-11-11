@@ -266,6 +266,8 @@ private fun PersonaShell(session: ShellSession, openNavigation: MutableState<((R
     }
     val sessions by session.sessions.sessions.collectAsStateWithLifecycle()
     val assistant by session.assistant.assistant.collectAsStateWithLifecycle()
+    val assistantWiring by shell.assistantWiring.collectAsStateWithLifecycle()
+    val assistantManagement = assistantWiring?.takeIf { it.scope.path == session.identity }?.assistantManagement
     val pending by session.interactions.pending.collectAsStateWithLifecycle()
     val inbox by session.inbox.snapshot.collectAsStateWithLifecycle()
     val connection by session.connection.state.collectAsStateWithLifecycle()
@@ -536,6 +538,7 @@ private fun PersonaShell(session: ShellSession, openNavigation: MutableState<((R
         val sharedSidebar: @Composable (String) -> Unit = { stateKey ->
             sidebarState.SaveableStateProvider(stateKey) {
                 AssistantSidebarContent(assistant, session.assistant, pins, sidebar.active, sidebarOperations, session.demo != null,
+                    management = assistantManagement,
                     onOpen = { key ->
                         sidebar.opened.value = false
                         selected = openResolved(ResolvedRoute(AppTab.Persona, ChatRoute(key.machineId, key.sessionId, ConversationKind.Assistant)))

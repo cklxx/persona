@@ -7,6 +7,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -27,9 +30,7 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import persona.core.contracts.Session
 import persona.core.contracts.SessionKey
-import persona.core.contracts.api.AssistantManagerChoice
-import persona.core.contracts.api.AssistantRepository
-import persona.core.contracts.api.AssistantSnapshot
+import persona.core.contracts.api.*
 import persona.core.designsystem.AppStyle
 import persona.core.designsystem.PersonaTheme
 import persona.core.navigation.AssistantRoute
@@ -40,7 +41,7 @@ import persona.core.navigation.TodoDetailRoute
 class AssistantSidebarContentTest {
     @get:Rule val rule = createComposeRule()
     private val operations = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    @After fun close() { operations.cancel() }
+    @After fun close() { operations.cancel(); AssistantManagerChoice.reset() }
 
     @Test fun historyAndSettingsWorkWithoutRenderingTheAssistantPage() {
         val choice = AssistantManagerChoice.current.value
@@ -75,5 +76,44 @@ class AssistantSidebarContentTest {
         rule.waitForIdle()
         rule.onNodeWithText("Fresh conversation").assertExists()
         rule.onNodeWithText("Saved conversation").assertDoesNotExist()
+    }
+
+    @Test fun archivedConversationRestoresWithoutAssistantHostWhenRefreshFails() {
+        val choice = AssistantManagerChoice.current.value
+        val archived = Session(machineId = "example", sessionId = "archived", title = "Archived conversation",
+            assistant = true, archived = true)
+        val snapshot = AssistantSnapshot(conversations = listOf(archived), manager = choice.manager, managerId = choice.shown)
+        val restored = mutableListOf<SessionKey>()
+        val repository = object : AssistantRepository {
+            override val assistant = MutableStateFlow(snapshot)
+            override suspend fun refresh() = error("refresh failed")
+        }
+        val base = persona.feature.assistant.settings.AssistantSettingsManagerTest.Hub(
+            mutableMapOf("assistant" to AssistantConfig()))
+        val management = object : AssistantManagement by base {
+            override fun forManager(manager: String?) = this
+            override suspend fun unarchiveConversation(session: SessionKey) { restored += session }
+        }
+        var opened: SessionKey? = null
+        rule.setContent {
+            PersonaTheme(style = AppStyle.Brief, reduceMotion = true) {
+                Box(Modifier.width(400.dp).height(1200.dp)) {
+                    // The production shared sidebar receives management directly; no AssistantAppHost is composed here.
+                    AssistantSidebarContent(snapshot, repository, emptySet(), null, operations, demo = false, management = management,
+                        onOpen = { opened = it }, onAction = {}, onSettings = {}, onInbox = {}, onKnowledge = {}, onTodos = {},
+                        todoCount = 0, showTodos = false, inboxCount = 0, settingsCount = 0, settingsDot = false,
+                        settingsBadge = null, pages = emptyList(), onPage = {}, onTogglePin = {}, onRetired = {})
+                }
+            }
+        }
+        rule.onNodeWithText("Archived conversation").assertDoesNotExist()
+        rule.onNodeWithText("已归档对话").performClick()
+        rule.onNode(hasText(archived.title!!) and hasAnyAncestor(hasTestTag("archived-conversations"))).performClick()
+        assertEquals(archived.key, opened)
+        rule.onNodeWithText("已归档对话").performClick()
+        rule.onNodeWithText("恢复").performClick()
+        assertEquals(listOf(archived.key), restored)
+        rule.onNodeWithText("Archived conversation").assertExists()
+        rule.onNodeWithText("已归档对话").assertDoesNotExist()
     }
 }

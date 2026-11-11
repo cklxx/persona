@@ -11,6 +11,7 @@ import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import persona.core.contracts.JsonCodec
 import persona.core.contracts.Machine
 import persona.core.contracts.Session
 import persona.core.contracts.SessionKey
@@ -75,6 +76,28 @@ class AssistantSwitchIsolationTest {
         oldResponse.complete(config(null, "old-main"))
         old.await()
         assertEquals("new-main", repository.assistant.value.mainSession?.sessionId)
+    }
+
+    @Test fun refreshIncludesArchivedRowsButCreationLookupUsesOrdinaryAssistantRead() = runTest {
+        val transport = Transport()
+        val repository = RealAssistantRepository(Connection(transport), Sessions(), backgroundScope)
+        runCurrent()
+        assertEquals(listOf("assistant"), transport.historyOwners)
+        transport.read = {
+            buildJsonObject {
+                put("machine_id", "mac")
+                put("main", "assistant-main")
+                put("conversations", buildJsonArray {
+                    add(session(null, "assistant-main"))
+                    add(JsonCodec.encodeToJsonElement(Session(machineId = "mac", sessionId = "archived", archived = true)))
+                })
+            }
+        }
+        repository.refresh()
+        assertTrue(repository.assistant.value.conversations.single { it.sessionId == "archived" }.archived)
+        assertEquals(SessionKey("mac", "assistant-main"), repository.mainConversationOf("assistant"))
+        assertEquals(listOf("assistant", "assistant"), transport.historyOwners)
+        assertEquals("assistant", transport.readOwners.last())
     }
 
     @Test fun mainLookupPinsTheReturnedConversationBeforePageSwitchAndSend() = runTest {
@@ -248,7 +271,12 @@ class AssistantSwitchIsolationTest {
         var read: suspend (String?) -> JsonObject = { config(it) }
         val creates = mutableListOf<String?>()
         val readOwners = mutableListOf<String?>()
+        val historyOwners = mutableListOf<String?>()
         val createOwners = mutableListOf<String?>()
+        override suspend fun assistantHistoryOf(manager: String?): JsonObject {
+            historyOwners += manager
+            return assistantOf(manager)
+        }
         override suspend fun assistantOf(manager: String?): JsonObject {
             readOwners += manager
             return read(manager?.takeUnless { it == "assistant" })

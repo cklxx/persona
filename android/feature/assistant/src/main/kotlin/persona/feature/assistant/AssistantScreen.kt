@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -126,9 +127,14 @@ fun AssistantScreen(
         managers = reportedRoster.managers.map { it.copy(online = false) },
     )
     val managerChoice by persona.core.contracts.api.AssistantManagerChoice.current.collectAsStateWithLifecycle()
+    var restored by remember(managerChoice.hubId, managerChoice.shown) { mutableStateOf(emptySet<SessionKey>()) }
     // A late repository emission is never shown under another assistant.
-    val snapshot = receivedSnapshot.takeIf { it.managerId == managerChoice.shown }
-        ?: persona.core.contracts.api.AssistantSnapshot(manager = managerChoice.manager, managerId = managerChoice.shown)
+    val snapshot = (receivedSnapshot.takeIf { it.managerId == managerChoice.shown }
+        ?: persona.core.contracts.api.AssistantSnapshot(manager = managerChoice.manager, managerId = managerChoice.shown)).let { current ->
+        if (restored.isEmpty()) current else current.copy(conversations = current.conversations.map {
+            if (it.key in restored) it.copy(archived = false) else it
+        })
+    }
     val pageManagement = remember(management, managerChoice.hubId, managerChoice.shown) {
         management?.forManager(managerChoice.shown)
     }
@@ -229,6 +235,9 @@ fun AssistantScreen(
     var healthBusy by remember { mutableStateOf(false) }
     val healthPage = active == null && newChat?.space == persona.core.contracts.api.AssistantSpace.HEALTH
     val onHealthChat = active != null && active in healthKeys
+    val activeMetadata = snapshot.conversations.firstOrNull { it.key == active }
+    val activeArchived = activeMetadata?.archived == true
+    val archiveList = remember(snapshot) { archivedConversations(snapshot) }
     // "Compact context" and "New main chat" (#1727): the main conversation's menu, on hubs that offer them.
     val mainActions = if (pageManagement != null && !demo) MainActions.of(LocalHubFeatures.current) else MainActions(false, false)
     // What the main conversation still needs (docs/assistant/onboarding.md 4.4), on hubs that work it out: asked when the tab
@@ -353,14 +362,14 @@ fun AssistantScreen(
             }
         }
     }
-    // Hidden at once; after the hub's list is refreshed (it leaves archived ones out) the hub's word is the one kept,
-    // so a later message that brings the conversation back shows it again.
+    // Hide an archived conversation at once; the refreshed snapshot owns its final state.
     fun archive(session: Session) {
         val target = pageManagement ?: return
         archived = archived + session.key
         scope.launch {
             try {
                 target.archiveConversation(session.key)
+                restored = restored - session.key
                 // Clear only the archived selection; keep the list open for the next archive.
                 if (activeMachine == session.machineId && activeSession == session.sessionId) clearConversation()
                 assistantAttempt { repository.refresh() }.onSuccess { archived = archived - session.key }
@@ -368,6 +377,20 @@ fun AssistantScreen(
             catch (error: Exception) {
                 archived = archived - session.key
                 if (feedback?.failure(error) != true) snackbar.showSnackbar(persona.core.designsystem.operationFeedback(error).text.resolve(resources))
+            }
+        }
+    }
+    fun restore(session: Session) {
+        val target = pageManagement ?: return
+        scope.launch {
+            try {
+                target.unarchiveConversation(session.key)
+                restored = restored + session.key
+                // The hub mutation succeeded; a later refresh failure must not undo it locally.
+                assistantAttempt { repository.refresh() }.onSuccess { restored = restored - session.key }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (feedback?.failure(error) != true) snackbar.showSnackbar(operationFeedback(error).text.resolve(resources))
             }
         }
     }
@@ -631,6 +654,9 @@ fun AssistantScreen(
             }) else null,
             onCopy = { copyId(it.key) },
             onArchive = if (pageManagement != null && !demo) ::archive else null,
+            archived = archiveList,
+            onOpenArchived = { openConversation(it); scope.launch { drawerOpen = false } },
+            onRestore = if (pageManagement != null && !demo) ::restore else null,
             showAllRecent = showAllRecent,
             onShowAllRecent = { showAllRecent = true },
             autoOpen = autoOpen, onAutoOpen = { autoOpen = it },
@@ -728,7 +754,9 @@ fun AssistantScreen(
                             // The refusal fallback card's "New main chat" (#2528): the main conversation's own dialog.
                             CompositionLocalProvider(persona.feature.chat.LocalNewMainChat provides
                                 (if (onMain && mainActions.newMain) ({ newMainOpen = true }) else null)) {
-                                if (assistantChatContent != null) assistantChatContent(active, AssistantChatOptions(readOnlyNote = managers.offline))
+                                if (assistantChatContent != null) assistantChatContent(active, AssistantChatOptions(
+                                    readOnlyNote = managers.offline ?: stringResource(R.string.assistant_archived_read_only).takeIf { activeArchived },
+                                    historySession = activeMetadata.takeIf { activeArchived }))
                                 else chatContent?.invoke(active)
                             }
                         }
@@ -1023,6 +1051,8 @@ internal fun AssistantDrawer(
     onHealth: (() -> Unit)? = null,
     onPin: ((Session) -> Unit)? = null, onUnpinAll: (() -> Unit)? = null, onCopy: (Session) -> Unit = {},
     onArchive: ((Session) -> Unit)? = null,
+    archived: List<Session> = emptyList(), onOpenArchived: (SessionKey) -> Unit = onOpen,
+    onRestore: ((Session) -> Unit)? = null,
     showAllRecent: Boolean = false, onShowAllRecent: () -> Unit = {},
     autoOpen: Boolean = false, onAutoOpen: (Boolean) -> Unit = {},
     onTodos: (() -> Unit)? = null, todoCount: Int = 0, showTodos: Boolean = true,
@@ -1035,6 +1065,8 @@ internal fun AssistantDrawer(
     // The origin "Automatic chats" lists when open (the first one there is, until another is picked).
     var autoPicked by rememberSaveable { mutableStateOf<String?>(null) }
     var searchVisible by rememberSaveable { mutableStateOf(false) }
+    var archivedOpen by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(archived.isEmpty()) { if (archived.isEmpty()) archivedOpen = false }
     val drawer = LocalHomeDrawer.current
     Column(Modifier.fillMaxHeight().padding(horizontal = if (drawer) Tokens.Space.s else 12.dp)) {
         val headPadding = Modifier.padding(horizontal = if (drawer) Tokens.Space.l else Tokens.Space.xs).padding(top = Tokens.Space.s)
@@ -1164,11 +1196,35 @@ internal fun AssistantDrawer(
                     }
                 }
             }
-            if (groups.directions.isEmpty() && groups.pinned.isEmpty() && groups.recent.isEmpty() && groups.auto.isEmpty() && (groups.main == null || query.isNotBlank())) {
+            if (archived.isNotEmpty()) item(key = "archived") {
+                JGroupItem(GroupPosition.Single, Modifier.padding(top = Tokens.Space.m)) {
+                    JRow(stringResource(R.string.assistant_archived_chats), leadingIcon = PhIcons.Archive,
+                        onClick = { archivedOpen = true }, trailing = { JBadge(archived.size) })
+                }
+            }
+            if (groups.directions.isEmpty() && groups.pinned.isEmpty() && groups.recent.isEmpty() && groups.auto.isEmpty() &&
+                (groups.main == null || query.isNotBlank()) && (query.isNotBlank() || archived.isEmpty())) {
                 item { JEmptyState(stringResource(if (query.isBlank()) R.string.assistant_empty_title else R.string.assistant_no_match),
                     stringResource(if (query.isBlank()) R.string.assistant_empty_detail else R.string.assistant_no_match_detail)) }
             }
 
+        }
+        if (archivedOpen && archived.isNotEmpty()) {
+            val words = conversationWords()
+            JSheet(onDismiss = { archivedOpen = false }, title = stringResource(R.string.assistant_archived_chats)) {
+                LazyColumn(Modifier.fillMaxWidth().fillMaxHeight(0.75f).testTag("archived-conversations")) {
+                    itemsIndexed(archived, key = { _, session -> session.key.path }) { index, session ->
+                        JGroupItem(GroupPosition.of(index, archived.size)) {
+                            JRow(session.conversationTitle(words), subtitle = session.lastText,
+                                leadingIcon = PhIcons.Archive, chevron = false,
+                                onClick = { archivedOpen = false; onOpenArchived(session.key) },
+                                trailing = onRestore?.let { restore -> {
+                                    JTextButton(stringResource(R.string.assistant_restore), { restore(session) }, icon = PhIcons.ArrowUUpLeft)
+                                } })
+                        }
+                    }
+                }
+            }
         }
         Row(Modifier.then(if (drawer) Modifier.padding(horizontal = Tokens.Space.l) else Modifier)
             .padding(vertical = if (drawer) Tokens.Space.m else Tokens.Space.s), verticalAlignment = Alignment.CenterVertically) {

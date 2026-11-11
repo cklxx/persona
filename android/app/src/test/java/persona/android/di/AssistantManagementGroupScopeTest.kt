@@ -17,6 +17,8 @@ class AssistantManagementGroupScopeTest {
         override suspend fun updateConfig(update: AssistantConfigUpdate) =
             AssistantConfig(machineId = requireNotNull(update.machineId)).also { calls += "$manager update ${update.machineId}" }
         override suspend fun endConversation(session: SessionKey) { calls += "$manager close ${session.machineId}/${session.sessionId}" }
+        override suspend fun archiveConversation(session: SessionKey) { calls += "$manager archive ${session.machineId}/${session.sessionId}" }
+        override suspend fun unarchiveConversation(session: SessionKey) { calls += "$manager unarchive ${session.machineId}/${session.sessionId}" }
         override suspend fun runTask(id: String) = SessionKey("pro", id).also { calls += "$manager run $id" }
         override suspend fun tasks() = emptyList<ScheduledTask>()
         override suspend fun saveTask(task: ScheduledTask) = task
@@ -40,6 +42,14 @@ class AssistantManagementGroupScopeTest {
         assertEquals(SessionKey("pro~g0a1b2c3d", "task"), work.runTask("task"))
         grouped.warm()
         assertEquals(listOf("work config", "work update pro", "work close pro/main", "work run task", "unbound warm"), calls)
+    }
+
+    @Test fun archiveAndRestoreTranslateGroupedSessionKeys() = runBlocking {
+        val calls = mutableListOf<String>()
+        val grouped = Management(calls).inGroup(GroupNames("g0a1b2c3d"))
+        grouped.archiveConversation(SessionKey("pro~g0a1b2c3d", "main"))
+        grouped.unarchiveConversation(SessionKey("pro~g0a1b2c3d", "main"))
+        assertEquals(listOf("unbound archive pro/main", "unbound unarchive pro/main"), calls)
     }
 
     @Test fun rebindingDefaultPreservesGroupAndPrimaryGroupRemainsIdentity() = runBlocking {

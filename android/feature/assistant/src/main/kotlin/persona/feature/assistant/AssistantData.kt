@@ -83,6 +83,12 @@ internal fun conversationGroups(
         directions, names, directions.map { it.key }.filter { it in pinned }.toSet())
 }
 
+internal fun archivedConversations(snapshot: AssistantSnapshot): List<Session> =
+    snapshot.conversations.distinctBy { it.key }.filter { it.archived }
+        .map { it to it.updated }
+        .sortedWith(compareByDescending<Pair<Session, java.time.Instant?>> { it.second }.thenBy { it.first.key.path })
+        .map { it.first }
+
 /** How many recent conversations the history lists before folding the rest into "See all N". */
 internal const val RecentShown = 30
 
@@ -246,6 +252,8 @@ data class AssistantChatOptions(
     val showTopBar: Boolean = false,
     /** The conversation's manager is offline (docs/assistant/managers.md step 4): history only, this note where the composer was. */
     val readOnlyNote: String? = null,
+    /** Display metadata for an archived conversation that is absent from the live session list. */
+    val historySession: Session? = null,
 )
 
 /**

@@ -29,6 +29,7 @@ fun AssistantSidebarContent(
     active: SessionKey?,
     operationScope: CoroutineScope,
     demo: Boolean,
+    management: AssistantManagement? = null,
     onOpen: (SessionKey) -> Unit,
     onAction: (AssistantSidebarAction) -> Unit,
     onSettings: () -> Unit,
@@ -48,10 +49,14 @@ fun AssistantSidebarContent(
     switcher: AssistantSwitcherSlot? = null,
 ) {
     val choice by AssistantManagerChoice.current.collectAsStateWithLifecycle()
-    val received = snapshot.takeIf { it.managerId == choice.shown }
-        ?: AssistantSnapshot(manager = choice.manager, managerId = choice.shown)
-    val base = LocalAssistantHost.current?.management
-    val management = remember(base, choice.hubId, choice.shown) { base?.forManager(choice.shown) }
+    val scopedManagement = remember(management, choice.hubId, choice.shown) { management?.forManager(choice.shown) }
+    var restored by remember(scopedManagement) { mutableStateOf(emptySet<SessionKey>()) }
+    val received = (snapshot.takeIf { it.managerId == choice.shown }
+        ?: AssistantSnapshot(manager = choice.manager, managerId = choice.shown)).let { current ->
+        if (restored.isEmpty()) current else current.copy(conversations = current.conversations.map {
+            if (it.key in restored) it.copy(archived = false) else it
+        })
+    }
     val resources = LocalResources.current
     val clipboard = LocalClipboardManager.current
     val feedback = LocalAppFeedback.current
@@ -59,8 +64,8 @@ fun AssistantSidebarContent(
     var query by rememberSaveable(choice.hubId, choice.shown) { mutableStateOf("") }
     var showAll by rememberSaveable(choice.hubId, choice.shown) { mutableStateOf(false) }
     var autoOpen by rememberAutoOpen()
-    var ended by remember(management) { mutableStateOf(emptySet<SessionKey>()) }
-    var archived by remember(management) { mutableStateOf(emptySet<SessionKey>()) }
+    var ended by remember(scopedManagement) { mutableStateOf(emptySet<SessionKey>()) }
+    var archived by remember(scopedManagement) { mutableStateOf(emptySet<SessionKey>()) }
     var ending by remember { mutableStateOf<Pair<Session, AssistantManagement>?>(null) }
     var busy by remember { mutableStateOf(false) }
     var pinning by remember { mutableStateOf(false) }
@@ -84,11 +89,12 @@ fun AssistantSidebarContent(
             if (it.key in ended) it.copy(status = "offline", state = "offline") else it
         }), query, pinned, words)
     }
+    val archiveList = remember(received) { archivedConversations(received) }
     Column(Modifier.fillMaxHeight()) {
         failure?.let { JNotice(it, status = Status.NeedsYou) }
         Box(Modifier.weight(1f)) {
             AssistantDrawer(query, { query = it }, groups, active = active, hasMain = received.mainSession != null,
-                onEnd = management?.takeUnless { demo }?.let { target -> { session: Session -> ending = session to target } },
+                onEnd = scopedManagement?.takeUnless { demo }?.let { target -> { session: Session -> ending = session to target } },
                 onMain = { received.mainSession?.let(onOpen) ?: onAction(AssistantSidebarAction.MainConversation) },
                 onOpen = onOpen,
                 onInfo = { topic -> when (topic) {
@@ -106,16 +112,29 @@ fun AssistantSidebarContent(
                 onPin = { toggle(listOf(it.key)) },
                 onUnpinAll = { toggle(received.conversations.map { it.key }.distinct().filter { it in pinned && it != received.mainSession }) },
                 onCopy = { clipboard.setText(AnnotatedString(it.sessionId)); feedback?.notice(resources.getString(R.string.assistant_copied_session_id)) },
-                onArchive = management?.takeUnless { demo }?.let { target -> { session: Session ->
+                onArchive = scopedManagement?.takeUnless { demo }?.let { target -> { session: Session ->
                     archived = archived + session.key
                     operationScope.launch {
                         try {
                             target.archiveConversation(session.key)
+                            restored = restored - session.key
                             onRetired(session.key)
                             repository.refresh()
                             archived = archived - session.key
                         } catch (cancelled: CancellationException) { throw cancelled }
                         catch (error: Exception) { archived = archived - session.key; failed(error) }
+                    }
+                } },
+                archived = archiveList, onOpenArchived = onOpen,
+                onRestore = scopedManagement?.takeUnless { demo }?.let { target -> { session: Session ->
+                    operationScope.launch {
+                        try {
+                            target.unarchiveConversation(session.key)
+                            restored = restored + session.key
+                            // The hub mutation succeeded; a later refresh failure must not undo it locally.
+                            assistantAttempt { repository.refresh() }.onSuccess { restored = restored - session.key }
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (error: Exception) { failed(error) }
                     }
                 } },
                 showAllRecent = showAll, onShowAllRecent = { showAll = true },

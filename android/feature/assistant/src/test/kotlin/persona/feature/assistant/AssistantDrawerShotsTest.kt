@@ -14,6 +14,9 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
@@ -62,9 +65,9 @@ class AssistantDrawerShotsTest {
 
     private fun out(): File = File(System.getProperty("persona.shots") ?: "build/drawer-shots").also { it.mkdirs() }
 
-    private fun capture(name: String) {
+    private fun capture(name: String, tag: String = "shot") {
         rule.waitForIdle()
-        val bitmap = rule.onNodeWithTag("shot").captureToImage().asAndroidBitmap()
+        val bitmap = rule.onNodeWithTag(tag).captureToImage().asAndroidBitmap()
         val background = bitmap.getPixel(1, 1)
         var other = 0
         for (y in 0 until bitmap.height step 7) for (x in 0 until bitmap.width step 7) if (bitmap.getPixel(x, y) != background) other++
@@ -189,6 +192,43 @@ class AssistantDrawerShotsTest {
         rule.onAllNodesWithContentDescription("对话操作")[1].performClick()
         rule.onNodeWithText("归档").performClick()
         assertEquals(recent.first(), archived)
+    }
+
+    @Test fun drawsArchivedConversationsInEveryStyleAndOpensAndRestoresThem() {
+        var style by mutableStateOf(AppStyle.Glass)
+        var dark by mutableStateOf(false)
+        var archived by mutableStateOf(listOf(
+            Session(machineId = "hub", sessionId = "old", title = "旧的旅行计划", archived = true,
+                updatedAt = minutesAgo(120), lastText = "保留的历史消息"),
+            Session(machineId = "hub", sessionId = "new", title = "归档的研究", archived = true, updatedAt = minutesAgo(10)),
+        ))
+        var opened: SessionKey? = null
+        val restored = mutableListOf<SessionKey>()
+        rule.setContent {
+            PersonaTheme(darkTheme = dark, reduceMotion = true, style = style) {
+                Box(Modifier.testTag("shot").width(400.dp).height(1100.dp).background(PersonaTheme.palette.background)) {
+                    AssistantDrawer("", {}, ConversationGroups(main, emptyList(), recent), active = null, hasMain = true,
+                        onEnd = null, onMain = {}, onOpen = {}, onInfo = {}, onNew = {}, onHome = {}, onSettings = {},
+                        archived = archived, onOpenArchived = { opened = it }, onRestore = { session ->
+                            restored += session.key
+                            archived = archived - session
+                        })
+                }
+            }
+        }
+        rule.onNodeWithText("已归档对话").performScrollTo().performClick()
+        for (s in AppStyle.entries) for (d in listOf(false, true)) {
+            style = s; dark = d
+            capture("drawer-archived-${s.name.lowercase()}-${if (d) "dark" else "light"}", "archived-conversations")
+        }
+        rule.onNode(hasText("旧的旅行计划") and hasAnyAncestor(hasTestTag("archived-conversations"))).performClick()
+        assertEquals(archived.first().key, opened)
+        rule.onNodeWithText("已归档对话").performScrollTo().performClick()
+        val firstKey = archived.first().key
+        rule.onAllNodesWithText("恢复")[0].performClick()
+        assertEquals(listOf(firstKey), restored)
+        rule.onNodeWithText("恢复").performClick()
+        rule.onAllNodesWithText("已归档对话").assertCountEquals(0)
     }
 
     // The Persona row says what the main conversation waits on: its pending count first, else working / unread.
