@@ -131,11 +131,14 @@ fun AssistantScreen(
     val localRestored = remember(managerChoice.hubId, managerChoice.shown) { mutableStateOf(emptySet<SessionKey>()) }
     var restored by (sharedSidebar?.restoredState(managerChoice.hubId, managerChoice.shown) ?: localRestored)
     // A late repository emission is never shown under another assistant.
-    val snapshot = (receivedSnapshot.takeIf { it.managerId == managerChoice.shown }
-        ?: persona.core.contracts.api.AssistantSnapshot(manager = managerChoice.manager, managerId = managerChoice.shown)).let { current ->
-        if (restored.isEmpty()) current else current.copy(conversations = current.conversations.map {
-            if (it.key in restored) it.copy(archived = false) else it
-        })
+    val currentSnapshot = receivedSnapshot.takeIf { it.managerId == managerChoice.shown }
+        ?: persona.core.contracts.api.AssistantSnapshot(manager = managerChoice.manager, managerId = managerChoice.shown)
+    val snapshot = if (restored.isEmpty()) currentSnapshot else currentSnapshot.copy(conversations = currentSnapshot.conversations.map {
+        if (it.key in restored) it.copy(archived = false) else it
+    })
+    val confirmedRestores = currentSnapshot.conversations.filter { it.key in restored && !it.archived }.mapTo(mutableSetOf()) { it.key }
+    LaunchedEffect(confirmedRestores) {
+        if (confirmedRestores.isNotEmpty()) restored = restored - confirmedRestores
     }
     val pageManagement = remember(management, managerChoice.hubId, managerChoice.shown) {
         management?.forManager(managerChoice.shown)
@@ -387,8 +390,8 @@ fun AssistantScreen(
             try {
                 target.unarchiveConversation(session.key)
                 restored = restored + session.key
-                // The hub mutation succeeded; a later refresh failure must not undo it locally.
-                assistantAttempt { repository.refresh() }.onSuccess { restored = restored - session.key }
+                // Only this manager's snapshot may clear the marker; refresh() follows the current manager.
+                assistantAttempt { repository.refresh() }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 if (feedback?.failure(error) != true) snackbar.showSnackbar(operationFeedback(error).text.resolve(resources))

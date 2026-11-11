@@ -52,11 +52,14 @@ fun AssistantSidebarContent(
     val scopedManagement = remember(management, choice.hubId, choice.shown) { management?.forManager(choice.shown) }
     val localRestored = remember(choice.hubId, choice.shown) { mutableStateOf(emptySet<SessionKey>()) }
     var restored by (LocalAssistantSidebarHost.current?.restoredState(choice.hubId, choice.shown) ?: localRestored)
-    val received = (snapshot.takeIf { it.managerId == choice.shown }
-        ?: AssistantSnapshot(manager = choice.manager, managerId = choice.shown)).let { current ->
-        if (restored.isEmpty()) current else current.copy(conversations = current.conversations.map {
-            if (it.key in restored) it.copy(archived = false) else it
-        })
+    val current = snapshot.takeIf { it.managerId == choice.shown }
+        ?: AssistantSnapshot(manager = choice.manager, managerId = choice.shown)
+    val received = if (restored.isEmpty()) current else current.copy(conversations = current.conversations.map {
+        if (it.key in restored) it.copy(archived = false) else it
+    })
+    val confirmedRestores = current.conversations.filter { it.key in restored && !it.archived }.mapTo(mutableSetOf()) { it.key }
+    LaunchedEffect(confirmedRestores) {
+        if (confirmedRestores.isNotEmpty()) restored = restored - confirmedRestores
     }
     val resources = LocalResources.current
     val clipboard = LocalClipboardManager.current
@@ -132,8 +135,8 @@ fun AssistantSidebarContent(
                         try {
                             target.unarchiveConversation(session.key)
                             restored = restored + session.key
-                            // The hub mutation succeeded; a later refresh failure must not undo it locally.
-                            assistantAttempt { repository.refresh() }.onSuccess { restored = restored - session.key }
+                            // Only this manager's snapshot may clear the marker; refresh() follows the current manager.
+                            assistantAttempt { repository.refresh() }
                         } catch (cancelled: CancellationException) { throw cancelled }
                         catch (error: Exception) { failed(error) }
                     }

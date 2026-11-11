@@ -18,7 +18,9 @@ import androidx.compose.ui.test.performClick
 import androidx.navigation3.runtime.NavKey
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -38,6 +40,7 @@ import persona.core.navigation.Navigator
 @Config(sdk = [35], qualifiers = "zh-w400dp-h900dp-xhdpi")
 class AssistantArchiveNavigationTest {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
+    @After fun resetManager() { AssistantManagerChoice.reset() }
 
     private val main = Session(machineId = "hub", sessionId = "main", title = "主对话")
     private val first = Session(machineId = "hub", sessionId = "a", title = "第一个任务")
@@ -189,6 +192,73 @@ class AssistantArchiveNavigationTest {
         rule.onNodeWithText(first.title!!).assertExists()
     }
 
+    @Test fun sharedRestoreSurvivesAnotherManagersRefreshUntilOriginalSnapshotConfirms() {
+        val hub = Hub()
+        val aSnapshot = AssistantSnapshot(main.key,
+            listOf(main, first.copy(archived = true), second), managerId = "a")
+        val bSnapshot = AssistantSnapshot(main.key, listOf(main, second), manager = "b", managerId = "b")
+        hub.assistant.value = aSnapshot
+        hub.archived += first.key
+        hub.delayRestore = true
+        AssistantManagerChoice.choose(null, null, "a")
+        val host = AssistantSidebarHost()
+        val requested = mutableStateOf<SessionKey?>(first.key)
+        rule.setContent {
+            val operations = rememberCoroutineScope()
+            CompositionLocalProvider(LocalAssistantSidebarHost provides host) {
+                PersonaTheme(reduceMotion = true) {
+                    val snapshot = hub.assistant.collectAsStateWithLifecycle().value
+                    AssistantScreen(navigator, hub, hub, startConversation = { error("Unexpected creation") },
+                        requestedSession = requested.value, management = hub, composerService = null,
+                        assistantChatContent = { key, options -> chatOptions = options; Text("chat:${key.sessionId}") })
+                    if (host.opened.value) {
+                        AssistantSidebarContent(snapshot, hub, emptySet(), requested.value, operations, demo = false,
+                            management = hub, onOpen = { requested.value = it }, onAction = {}, onSettings = {}, onInbox = {},
+                            onKnowledge = {}, onTodos = null, todoCount = 0, showTodos = false, inboxCount = 0,
+                            settingsCount = 0, settingsDot = false, settingsBadge = null, pages = emptyList(), onPage = {},
+                            onTogglePin = {}, onRetired = {})
+                    }
+                }
+            }
+        }
+        assertEquals("此对话已归档。恢复后才能发送消息。", chatOptions?.readOnlyNote)
+        rule.runOnIdle { host.opened.value = true }
+        rule.onNodeWithText("已归档对话").performClick()
+        rule.onNodeWithText("恢复").performClick()
+        rule.waitUntil { hub.restoreStarted == "a" }
+
+        rule.runOnIdle {
+            AssistantManagerChoice.pick("b")
+            hub.assistant.value = bSnapshot
+            requested.value = null
+        }
+        rule.waitForIdle()
+        rule.runOnIdle {
+            hub.refreshes.clear()
+            hub.restoreGate.complete(Unit)
+        }
+        rule.waitForIdle()
+        assertEquals(listOf("b"), hub.refreshes)
+        assertTrue(first.key in host.restoredState(null, "a").value)
+
+        rule.runOnIdle {
+            AssistantManagerChoice.pick(null)
+            hub.assistant.value = aSnapshot
+            requested.value = first.key
+        }
+        rule.onNodeWithText("chat:a").assertExists()
+        assertEquals(true, hub.assistant.value.conversations.first { it.key == first.key }.archived)
+        assertEquals(null, chatOptions?.readOnlyNote)
+        assertEquals(null, chatOptions?.historySession)
+
+        rule.runOnIdle {
+            hub.assistant.value = aSnapshot.copy(conversations = aSnapshot.conversations.map {
+                if (it.key == first.key) it.copy(archived = false) else it
+            })
+        }
+        rule.waitUntil { host.restoredState(null, "a").value.isEmpty() }
+    }
+
     @Test fun theMainConversationStillHasNoArchiveAction() {
         show()
         rule.onAllNodesWithContentDescription("对话操作")[0].performClick()
@@ -199,8 +269,22 @@ class AssistantArchiveNavigationTest {
         override val assistant = MutableStateFlow(AssistantSnapshot(main.key, listOf(main, first, second)))
         override val outbox = MutableStateFlow(emptyList<OutboxMessage>())
         val archived = mutableListOf<SessionKey>()
+        val refreshes = mutableListOf<String>()
+        val restoreGate = CompletableDeferred<Unit>()
+        var restoreStarted: String? = null
+        var delayRestore = false
         var fail = false
         var failRefresh = false
+        override fun forManager(manager: String?): AssistantManagement {
+            if (!delayRestore) return this
+            return object : AssistantManagement by this {
+                override suspend fun unarchiveConversation(session: SessionKey) {
+                    restoreStarted = manager
+                    restoreGate.await()
+                    this@Hub.unarchiveConversation(session)
+                }
+            }
+        }
         override suspend fun archiveConversation(session: SessionKey) {
             check(!fail) { "归档失败" }
             archived += session
@@ -210,6 +294,7 @@ class AssistantArchiveNavigationTest {
             archived -= session
         }
         override suspend fun refresh() {
+            refreshes += AssistantManagerChoice.current.value.shown
             check(!failRefresh) { "刷新失败" }
             assistant.value = assistant.value.copy(conversations = assistant.value.conversations.map {
                 it.copy(archived = it.key in archived)
