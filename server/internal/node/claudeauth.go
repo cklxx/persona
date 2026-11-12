@@ -34,21 +34,21 @@ func (n *Node) claudeAuthStatus(ctx context.Context, name string) (proto.ClaudeA
 	if name == "" {
 		name = "claude"
 	}
-	return n.claudeAuthStatusCommand(ctx, name, n.launcherCommand(name), true)
+	return n.claudeAuthStatusCommand(ctx, name, n.launcherForScript(name), true)
 }
 
 // claudeAuthStatusProfile checks the exact profile a new conversation selected, not the machine's default login.
 // The Agent SDK uses its resolved executable directly: an SDK start must not also run the login shell's claude.
 func (n *Node) claudeAuthStatusProfile(ctx context.Context, name, runtime, selected string) (proto.ClaudeAuthStatus, error) {
 	dir := n.assistantConfigDir(name, selected)
-	command := n.launcherCommandIn(name, dir, shellQuote)
+	command := n.launcherCommandIn(name, dir, scriptPath)
 	sdk := runtime == proto.AssistantRuntimeAgentSDK && name == "claude"
 	if sdk {
 		executable, err := sdkClaude()
 		if err != nil {
 			return proto.ClaudeAuthStatus{State: proto.ClaudeAuthUnknown, Reason: proto.ClaudeAuthUnreadable}, nil
 		}
-		command = "CLAUDE_CONFIG_DIR=" + shellQuote(dir) + " " + shellQuote(executable)
+		command = "CLAUDE_CONFIG_DIR=" + scriptPath(dir) + " " + scriptPath(executable)
 	}
 	return n.claudeAuthStatusCommand(ctx, name, command, !sdk)
 }
@@ -93,10 +93,10 @@ func (n *Node) claudeAuthStatusCommand(ctx context.Context, name, command string
 	}
 	// --settings goes before the subcommand: a launcher appends its own arguments after "$@" no more than before it,
 	// and `claude auth status` itself takes no --settings.
-	args := ` --settings ` + shellQuote(n.claudeSettings(ctx, name, ours, dir)) + ` auth status --json`
+	args := scriptSettingsFlag(n.claudeSettings(ctx, name, ours, dir)) + ` auth status --json`
 	cctx, cancel := context.WithTimeout(ctx, claudeAuthTimeout)
 	defer cancel()
-	cmd := loginShell(cctx, "cd "+shellQuote(dir)+" && "+command+args+" </dev/null")
+	cmd := loginShell(cctx, "cd "+scriptPath(dir)+" && "+command+args+" </dev/null")
 	killGroupOnCancel(cmd)
 	out, _ := cmd.CombinedOutput() // not signed in exits 1, with the same JSON
 	if cctx.Err() != nil {
