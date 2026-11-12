@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
@@ -32,6 +33,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.Density
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -115,16 +117,20 @@ class ForwardShotsTest {
 
     @After fun clear() { ForwardPlacements.home = emptyList() }
 
-    private fun shots(style: AppStyle, dark: Boolean) {
+    private fun shots(style: AppStyle, dark: Boolean, large: Boolean = false) {
         var scene by mutableStateOf(Scene.Menu)
         val menu = MessageMenuState()
         rule.setContent {
             val configuration = Configuration(LocalConfiguration.current).apply {
+                fontScale = if (large) 2f else 1f
                 uiMode = (uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or
                     if (dark) Configuration.UI_MODE_NIGHT_YES else Configuration.UI_MODE_NIGHT_NO
             }
+            val density = LocalDensity.current
+            val scaledDensity = Density(density.density, if (large) 2f else density.fontScale)
             // A tapped row keeps a frozen, half-drawn ripple in native shots: none here (tests only).
-            CompositionLocalProvider(LocalConfiguration provides configuration, LocalRippleConfiguration provides null) {
+            CompositionLocalProvider(LocalConfiguration provides configuration, LocalDensity provides scaledDensity,
+                LocalRippleConfiguration provides null) {
                 PersonaTheme(darkTheme = dark, reduceMotion = true, style = style) {
                     val actions = remember(menu) {
                         ChatRowActions(blog.key, { "" }, null, photos = null, pictures = { emptyList() }, openImages = { _, _ -> },
@@ -164,7 +170,7 @@ class ForwardShotsTest {
                 }
             }
         }
-        val name = "${style.name.lowercase()}-${if (dark) "dark" else "light"}"
+        val name = "${style.name.lowercase()}-${if (dark) "dark" else "light"}${if (large) "-large" else ""}"
         menu.open(MessageTarget(reply.id, reply.text.orEmpty(), user = false))
         settle()
         val words = sheetTexts()
@@ -237,6 +243,12 @@ class ForwardShotsTest {
     @Test fun briefDark() = shots(AppStyle.Brief, true)
     @Test fun boardLight() = shots(AppStyle.Board, false)
     @Test fun boardDark() = shots(AppStyle.Board, true)
+    @Test fun glassLightLarge() = shots(AppStyle.Glass, false, large = true)
+    @Test fun glassDarkLarge() = shots(AppStyle.Glass, true, large = true)
+    @Test fun briefLightLarge() = shots(AppStyle.Brief, false, large = true)
+    @Test fun briefDarkLarge() = shots(AppStyle.Brief, true, large = true)
+    @Test fun boardLightLarge() = shots(AppStyle.Board, false, large = true)
+    @Test fun boardDarkLarge() = shots(AppStyle.Board, true, large = true)
 
     /** Persona is offered for a chat of the hub group Persona's page shows; a linked group's chat cannot reach it (same hub only). */
     @Test fun personaIsOfferedOnItsOwnHubOnly() {
