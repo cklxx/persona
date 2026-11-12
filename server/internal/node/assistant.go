@@ -539,6 +539,11 @@ func (n *Node) assistantSend(ctx context.Context, id, cwd, launcher, text string
 		if err != nil {
 			return "", err
 		}
+		if !resume {
+			if err := n.assistantNewProfileAuth(ctx, launcher, asked, execution.ConfigDir); err != nil {
+				return "", err
+			}
+		}
 	} else if executionOption(options).ConfigDir != "" {
 		return "", errors.New(assistantwire.ConfigDirClaudeOnly)
 	}
