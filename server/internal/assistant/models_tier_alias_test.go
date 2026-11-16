@@ -76,6 +76,41 @@ func TestAPIConfigResolvesTierAlias(t *testing.T) {
 	}
 }
 
+func TestChatSaveMigratesTierAliasesWithProvider(t *testing.T) {
+	s, mux := launcherTestService(t)
+	putLaunchers(t, s, storedLauncher{ManagedLauncher: proto.ManagedLauncher{
+		Name: "chat", Kind: "api", API: "chat", BaseURL: "https://chat.example.com",
+		Model: "Sonnet[1m]", SonnetModel: "gw/sonnet", SmallModel: "gw/fast",
+	}})
+	for id, model := range map[string]string{
+		"kb": "Sonnet[1m]", purposeMeetingMinutes: "sonnet", "inbox.triage": "haiku", "agent.delegate": "custom-model",
+	} {
+		setModel(t, s, id, ModelBinding{Provider: "launcher.chat", Model: model})
+	}
+
+	clear := `{"kind":"api","api":"chat","base_url":"https://chat.example.com","model":"Sonnet[1m]","small_model":"","sonnet_model":""}`
+	if code, body := launcherCall(t, mux, "PUT", "/api/v1/launchers/chat", clear); code != 200 {
+		t.Fatalf("clear legacy tier fields: %d %s", code, body)
+	}
+	stored := s.storedLaunchers(context.Background())
+	if len(stored) != 1 || stored[0].Model != "gw/sonnet" || stored[0].SonnetModel != "" || stored[0].SmallModel != "" {
+		t.Fatalf("stored provider = %+v", stored)
+	}
+	for id, want := range map[string]string{"kb": "gw/sonnet", purposeMeetingMinutes: "gw/sonnet", "inbox.triage": "gw/fast"} {
+		p := purposeOf(t, s, id)
+		if p.Override.Model != want || p.Revision != 2 {
+			t.Fatalf("%s override = %+v, revision %d", id, p.Override, p.Revision)
+		}
+		config, err := s.apiConfig(context.Background(), p.Effective)
+		if err != nil || config.Model != want {
+			t.Fatalf("%s resolved model = %q, err = %v", id, config.Model, err)
+		}
+	}
+	if p := purposeOf(t, s, "agent.delegate"); p.Override.Model != "custom-model" || p.Revision != 1 {
+		t.Fatalf("non-alias purpose changed: %+v, revision %d", p.Override, p.Revision)
+	}
+}
+
 // A launcher the manager cannot call runs its CLI on a computer, whose node resolves the alias itself (launcherenv.go).
 func TestAPIConfigLeavesTierAliasForCLIRun(t *testing.T) {
 	s, _, _ := modelService(t)

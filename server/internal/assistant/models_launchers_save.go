@@ -545,12 +545,19 @@ func (s *Service) saveLauncher(ctx context.Context, in launcherInput, old *store
 	}
 	l.APIKey, l.Headers, l.HasHeaders, l.Env, l.HasEnv = "", "", false, "", false // only ever stored sealed
 	l.Withheld, l.Rev = false, ""
+	var more map[string]any
+	if old != nil && l.API == "chat" {
+		more, err = s.migrateTierAliases(ctx, *old, &l)
+		if err != nil {
+			return storedLauncher{}, err
+		}
+	}
 	if i := slices.IndexFunc(list, func(x storedLauncher) bool { return x.Name == l.Name }); i >= 0 {
 		list[i] = l
 	} else {
 		list = append(list, l)
 	}
-	if err := s.storeManagedWithKeys(ctx, list, keys, newKeys, nil); err != nil {
+	if err := s.storeManagedWithKeys(ctx, list, keys, newKeys, more); err != nil {
 		return l, err
 	}
 	return l, nil

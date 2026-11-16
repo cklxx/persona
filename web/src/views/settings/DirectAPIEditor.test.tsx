@@ -493,11 +493,13 @@ describe("DirectAPIEditor", () => {
     expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_ok", { ms: 99 }));
   });
 
-  it.each(["responses", "chat"] as const)("offers testable %s protocol efforts when discovery has no model-specific metadata", async (api) => {
+  it.each([
+    ["responses", ["", "off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]],
+    ["chat", ["", "off", "low", "medium", "high", "xhigh", "max"]],
+  ] as const)("offers testable %s protocol efforts when discovery has no model-specific metadata", async (api, expected) => {
     currentProvider = { ...provider, api, models };
     draft = { ...draft, model: "unlisted-model", effort: "" };
     await render();
-    const expected = ["", "off", "low", "medium", "high", "xhigh", "max"];
     expect([...effortSelect().options].map((option) => option.value)).toEqual(expected);
     expect(host.textContent).toContain(t("settings-modelconfiguration.api_effort_unknown"));
     await act(async () => {

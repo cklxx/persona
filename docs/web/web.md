@@ -1192,6 +1192,8 @@ Tests: `lib/model-config.test.ts`, `views/settings/ModelConfiguration.meeting.te
 360 px with Large text, wide; English, 简体中文 and 日本語; the background supervisor's as the unchanged reference): against
 that mock and `npx vite`, run `node web/e2e/meeting-models.mjs <web URL> [--shots <dir>] [--executable <chromium>]`
 (the mock names its categories in Chinese in every language; the script gives the page their names as a hub sends them).
+For the Chat effort editor, also start the mock with `MOCK_CHAT_EFFORT=1` and pass `--chat-effort`. The script selects the
+Chat Completions connection, checks its reported options, and saves light/dark screenshots at default and Large text.
 
 ### Standing authorizations
 

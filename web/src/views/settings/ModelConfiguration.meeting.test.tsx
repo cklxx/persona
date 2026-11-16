@@ -275,7 +275,7 @@ describe("the meeting uses' models (#7980)", () => {
     expect(effort()).not.toBeNull();
     await choose("api.chat");
     expect(effort()).toBeNull();
-    expect(effortSelect()).not.toBeNull();
+    expect(effortSelect()).toBeDefined();
     expect(dialog().textContent).not.toContain("Test connection");
     await choose("api.messages");
     expect(effort()).not.toBeNull();
@@ -328,6 +328,30 @@ describe("the meeting uses' models (#7980)", () => {
     expect(effortSelect()!.options[0].textContent).toBe(t("settings-modelconfiguration.api_effort_inherit", { effort: effortTitle("high") }));
   });
 
+  it("uses effective inheritance for a same-provider Chat record when the catalog is unavailable", async () => {
+    catalogFails = true;
+    Object.assign(KB, { provider: "api.chat", model: "parent-model", effort: "high" });
+    providers[3].models = [
+      { id: "parent-model", efforts: ["low"], all_efforts: ["none", "low"] },
+      { id: "chat-default", efforts: ["high"], all_efforts: ["none", "high"] },
+    ];
+    stored["meeting.minutes"] = {
+      override: { provider: "api.chat" },
+      effective: { provider: "api.chat", model: "parent-model", effort: "high" },
+      revision: 4, fields,
+    };
+    await render("meeting.minutes");
+    expect([...effortSelect()!.options].map((option) => option.value)).toEqual(["", "off", "low"]);
+    expect(effortSelect()!.options[0].textContent).toBe(t("settings-modelconfiguration.api_effort_inherit", { effort: effortTitle("high") }));
+    await act(async () => {
+      effortSelect()!.value = "low";
+      effortSelect()!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => button("Save", dialog())!.click());
+    await flush();
+    expect(patches).toEqual([{ path: "/api/v1/model-config/purposes/meeting.minutes", body: { revision: 4, provider: "api.chat", model: null, effort: "low" } }]);
+  });
+
   it("keeps Chat effort when an older hub's explicit Chat binding switches to another Chat provider", async () => {
     delete providers[3].chat_effort;
     providers.push({ id: "api.chat-b", name: "Chat B", kind: "api", api: "chat", model: "chat-b-default", has_key: true });
@@ -335,7 +359,7 @@ describe("the meeting uses' models (#7980)", () => {
     await render();
     await open("meeting.minutes");
     await choose("api.chat-b");
-    expect(effortSelect()).not.toBeNull();
+    expect(effortSelect()).toBeDefined();
   });
 
   it("restores Messages effort from another provider's current-hub mark when the effective provider is missing", async () => {

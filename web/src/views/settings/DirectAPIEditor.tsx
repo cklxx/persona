@@ -33,7 +33,8 @@ export function directEffortState(provider: ModelProvider, discovered: ProviderM
   // Efforts-only Chat metadata keeps Off as a separate runtime control.
   const reportedOptions = chat && reported?.length && !exact && !reportedEfforts?.includes("off")
     ? ["off", ...(reportedEfforts ?? [])] : reportedEfforts;
-  const fallback = ["off", ...EFFORT_LEVELS];
+  const fallback = provider.api === "responses"
+    ? ["off", "minimal", ...EFFORT_LEVELS, "ultra"] : ["off", ...EFFORT_LEVELS];
   return {
     efforts: unsupported || unavailable ? [] : reported?.length ? reportedOptions ?? [] : fallback,
     unsupported, unavailable, reported: !!reported?.length,

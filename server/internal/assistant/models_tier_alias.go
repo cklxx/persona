@@ -2,8 +2,11 @@ package assistant
 
 import (
 	"cmp"
+	"context"
+	"slices"
 	"strings"
 
+	"github.com/nwverse/persona/server/internal/assistantwire"
 	"github.com/nwverse/persona/server/internal/i18n"
 )
 
@@ -42,4 +45,49 @@ func resolveAPITierAlias(l storedLauncher, model string) (string, error) {
 		}
 	}
 	return "", i18n.Err("assistant-models.err_tier_alias_unresolved", i18n.Args{"model": model, "provider": l.Name})
+}
+
+// migrateTierAliases keeps existing bindings callable when a Chat save removes the tier fields they use. The caller
+// holds models.mu and writes the returned records with next in one transaction. Haiku's small-model fallback is an
+// alias mapping too: replacing API launch fields must not strand a purpose that names haiku.
+func (s *Service) migrateTierAliases(ctx context.Context, old storedLauncher, next *storedLauncher) (map[string]any, error) {
+	moved := map[string]string{}
+	for alias := range apiTierAliases {
+		before, err := resolveAPITierAlias(old, alias)
+		if err != nil {
+			continue
+		}
+		after, afterErr := resolveAPITierAlias(*next, alias)
+		if afterErr != nil || after != before {
+			moved[alias] = before
+		}
+	}
+	if len(moved) == 0 {
+		return nil, nil
+	}
+	if alias, ok := apiTierAliasKey(next.Model); ok && moved[alias] != "" {
+		next.Model = moved[alias]
+	}
+
+	provider := launcherProvider(old.Name)
+	providers := s.modelProviders(ctx)
+	ids := slices.Clone(modelConfigIDs)
+	for _, x := range s.modelExtensions(ctx) {
+		ids = append(ids, assistantwire.ExtensionPurposePrefix+x.StorageKey())
+	}
+	writes := map[string]any{}
+	for _, id := range ids {
+		p, err := s.modelPurpose(ctx, id, providers)
+		if err != nil {
+			return nil, err
+		}
+		alias, ok := apiTierAliasKey(p.Override.Model)
+		if p.Effective.Provider != provider || !ok || moved[alias] == "" {
+			continue
+		}
+		binding := p.Override
+		binding.Model = moved[alias]
+		writes[modelRecordKey(modelRecordID(p))] = modelRecord{Revision: p.Revision + 1, Binding: binding}
+	}
+	return writes, nil
 }

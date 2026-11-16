@@ -262,14 +262,15 @@ function PurposeEditor({ manager, id, sourceName, catalog, onClose, onSaved }: {
   // An own record that names its parent's provider still inherits an empty model or effort from that parent. Another
   // provider starts from its own default. Use the current draft, not the saved override being cleared.
   const sameParentProvider = !draft.provider || draft.provider === parent?.effective?.provider;
+  const sameEffectiveProvider = !draft.provider || draft.provider === p?.effective?.provider;
   const inheritedModel = following
     ? sameParentProvider ? parent?.effective?.model : undefined
-    : !draft.provider && !p?.override?.model ? p?.effective?.model : undefined;
+    : sameEffectiveProvider && !p?.override?.model ? p?.effective?.model : undefined;
   const inherited: ModelBinding = inheritedModel ? { model: inheritedModel } : {};
   const effortModel = draft.model.trim() || inheritedModel || chosen?.model || p?.effective?.model || "";
   const inheritedEffort = following
     ? sameParentProvider ? parent?.effective?.effort : undefined
-    : !draft.provider && !p?.override.effort ? p?.effective?.effort : undefined;
+    : sameEffectiveProvider && !p?.override.effort ? p?.effective?.effort : undefined;
   const chatEffort = !directAPI && chosen?.kind === "api" && chosen.api === "chat"
     ? directEffortState(chosen, [], effortModel) : undefined;
   const listedEfforts = launcherList.status === "ready" && launcherList.list && takesEffort(launcherList.list.agent)

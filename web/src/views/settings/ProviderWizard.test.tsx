@@ -451,7 +451,7 @@ describe("ProviderWizard from presets", () => {
     await act(async () => button("保存")!.click());
     expect(calls.find((c) => c.method === "PUT" && c.path.endsWith("/launchers/chat"))?.body).toMatchObject({
       headers: "", env: "", proxy: "", no_proxy: "", timeout_ms: 0, compact_window: 0, max_context: 0,
-      model: "tier-b", opus_model: "", sonnet_model: "", haiku_model: "", fable_model: "", subagent_force: false,
+      model: "sonnet", opus_model: "", sonnet_model: "", haiku_model: "", fable_model: "", subagent_force: false,
     });
     expect(calls.find((c) => c.method === "PUT" && c.path.endsWith("/launchers/chat"))?.body).not.toHaveProperty("effort");
   });
