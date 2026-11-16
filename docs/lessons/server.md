@@ -683,6 +683,24 @@ namespace; resolve the fallback into the ids of the table being written (the dev
 
 A custom `http.Transport.DialContext` conservatively disables Go's automatic HTTP/2 negotiation. Keep the checked-address dial callback and explicitly enable `ForceAttemptHTTP2`; do not replace it with a default dialer or let an upstream proxy resolve the name again. Verify real local TLS HTTP/2 negotiation, HTTP/1.1 fallback and request cancellation. A successful transport test is not evidence that a particular upstream challenge disappeared: verify the installed source separately, without raising budgets or substituting host-downloaded content.
 
+## A backup's runtime-file filter is not for the owner's files (2026-11-14, #5951)
+
+The whole-install backup skipped `*.log`, `*.lock`, `*.pid`, `*.sock` and `.tmp-` names in every directory it copied,
+the knowledge base included: a `meeting.log` or `yarn.lock` there was left out, the manifest listed only what was
+copied, so verification passed, and a restore replaced the directory with one missing them. Skip runtime artifacts
+only in directories the product itself writes (and sockets, by type, anywhere); copy the knowledge base, skills and
+extensions in full, and never filter on the restore side. The same review found two more gaps where a missing value
+read as "anything goes": a `password=` query parameter dropped before `pg_dump` (take the password from
+`pgx.ParseConfig`, as the connection does), and a manager database with no `sealing_key` row accepting any key
+(prove the bundled key opens its sealed values). A relative path from a manifest is checked against its root
+(`../victim` is clean but outside).
+
+libpq expands a connection URI only when it is the explicit `dbname` argument, never from `PGDATABASE`: the backup's
+`PGDATABASE=postgres://…` made `pg_dump` ignore host, port and user and try the default socket, and PostgreSQL 18's
+`pg_restore` without `-d` refuses to run at all. Fake clients in unit tests accepted both, so only a real server
+showed it. Pass `PGHOST`/`PGPORT`/`PGUSER`/`PGDATABASE=<name>` and the ssl* variables, the password in `PGPASSWORD`,
+and `--dbname=<plain name>` to `pg_restore`.
+
 ## A failed swap must not look like a new install
 
 `update.SwapProgram` recorded `Prev: ""` when copying the old program to `.prev` or putting the new build in place failed, and `Prev: ""` is how a swap says the program was new, so going back deleted a program the failed swap had never touched.
@@ -2260,7 +2278,7 @@ A node method that answers a refusal with a plain `errors.New` / `fmt.Errorf` ha
 ## A download the app gave up on, and a budget no slow link could meet (2026-11-10, #3692)
 
 On TestFlight 224 an extension's **Review** spun for two minutes and then failed. The operations list (`GET /api/v1/extensions/-/operations`) told the story the access log could not: the settings page's synchronous `catalog/preview` was downloading a 13 MB package at about 33 KB/s from the hub machine; the app's 120 s request timeout closed the request, the hub's relay to the manager closed with it, and the preview's context (the request's) took the download down at 4.5 MB (`context canceled`). Tapping again on the reopened page started a second download of the same package beside the first, which got nothing for 30 s (`download_stalled`, `400 invalid_plugin`). A read-only preview with no client timeout then showed the deeper problem: the download kept moving and was cut at 10.1 MB by `Download`'s fixed five-minute budget, so on that link it could never succeed, synchronous or not.
-- A long download must not belong to one request. The manager now has one download per package at a time (by cache and sha256, `market_download_shared.go`): callers wait for it and get its progress replayed from where it is; when they all went away it goes on into the cache; only the user's Cancel (`context.Cause` is `extension.ErrUserCanceled`, set by `DELETE …/operations/{id}`) stops one nobody else waits for.
+- A long download must not belong to one request. The manager now has one download per package at a time (by cache, sha256 and declared size, `market_download_shared.go`): callers wait for it and get its progress replayed from where it is; when they all went away it goes on into the cache; only the user's Cancel (`context.Cause` is `extension.ErrUserCanceled`, set by `DELETE …/operations/{id}`) stops one nobody else waits for. Keep size in the sharing key: equal digests with conflicting declared sizes must be validated independently, regardless of which request arrived first (#9400).
 - Bound trickles by size, not by a constant: the stall rule catches a dead link, and the total budget is 30 minutes or the time 16 KiB/s needs. Tell our own budget from the caller's with `context.WithTimeoutCause` and a sentinel cause, or a caller's deadline reads as "too slow".
 - When the client of a synchronous call leaves, the operation it started should say so in words (`client_left`), not `context canceled`.
 - Progress is reported at most every 200 ms: a test that waits for an exact byte count can wait forever; wait for "some bytes" and prove there was no restart by counting requests.
