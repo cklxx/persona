@@ -156,7 +156,10 @@ describe.each(["kb", "inbox.triage", "agent.delegate"])("%s Direct API editor", 
 
   it.each(["messages", "responses", "chat"])("offers and saves effort for %s when the original Chat override has no effort", async (api) => {
     // Older hubs omit effort for Chat; their switch to Messages or Responses must still offer it.
-    if (api !== "chat") current.fields = ["provider", "model"];
+    if (api !== "chat") {
+      current.fields = ["provider", "model"];
+      delete providers[2].chat_effort;
+    }
     current.override = { provider: "launcher.chat", model: "chat-default" };
     current.effective = { ...current.override };
     const revision = current.revision;
