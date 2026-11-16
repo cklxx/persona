@@ -20,7 +20,7 @@ import { ModelConfiguration } from "./ModelConfiguration";
 const providers: ModelProvider[] = [
   { id: "launcher.messages", name: "Messages provider", kind: "api", api: "messages", model: "messages-default" },
   { id: "launcher.responses", name: "Responses provider", kind: "api", api: "responses", model: "responses-default" },
-  { id: "launcher.chat", name: "Chat provider", kind: "api", api: "chat", model: "chat-default" },
+  { id: "launcher.chat", name: "Chat provider", kind: "api", api: "chat", chat_effort: true, model: "chat-default" },
 ];
 const models = {
   messages: [
@@ -31,7 +31,11 @@ const models = {
     { id: "responses-default", efforts: ["low", "medium", "high"] },
     { id: "responses-new", name: "Responses model", efforts: ["medium", "high", "xhigh"] },
   ],
-  chat: [{ id: "chat-default", efforts: ["high"] }],
+  chat: [
+    { id: "chat-default", efforts: ["high"] },
+    { id: "chat-new", efforts: ["medium", "high"] },
+    { id: "chat-none", efforts: [], no_effort: true },
+  ],
 };
 type Call = { path: string; method: string; body?: Record<string, unknown>; headers: Headers };
 let calls: Call[];
@@ -86,6 +90,7 @@ beforeEach(async () => {
   await initI18n("zh-Hans");
   calls = [];
   result = undefined;
+  providers[2].chat_effort = true;
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input).split("?")[0];
     const method = init?.method ?? "GET";
@@ -146,12 +151,14 @@ describe.each(["kb", "inbox.triage", "agent.delegate"])("%s Direct API editor", 
     expect(writes()).toEqual([]);
   });
 
-  it.each(["messages", "responses"])("offers and saves effort when switching from Chat to %s without an original effort field", async (api) => {
-    current.fields = ["provider", "model"];
+  it.each(["messages", "responses", "chat"])("offers and saves effort for %s when the original Chat override has no effort", async (api) => {
+    // Older hubs omit effort for Chat; their switch to Messages or Responses must still offer it.
+    if (api !== "chat") current.fields = ["provider", "model"];
     current.override = { provider: "launcher.chat", model: "chat-default" };
     current.effective = { ...current.override };
+    const revision = current.revision;
     await render();
-    expect(select(t("settings-modelconfiguration.effort"))).toBeUndefined();
+    if (api !== "chat") expect(select(t("settings-modelconfiguration.effort"))).toBeUndefined();
 
     await choose(select(t("settings-modelconfiguration.model_provider")), `launcher.${api}`);
     const effort = select(t("settings-modelconfiguration.effort"));
@@ -164,12 +171,42 @@ describe.each(["kb", "inbox.triage", "agent.delegate"])("%s Direct API editor", 
     expect(probes().at(-1)?.body).toEqual({ name: api, model: `${api}-new`, effort: "high" });
     expect(writes()).toEqual([]);
 
+    if (api === "chat") {
+      current = {
+        ...current, revision: revision + 1,
+        override: { provider: "launcher.chat", model: "chat-new", effort: "high" },
+        effective: { provider: "launcher.chat", model: "chat-new", effort: "high" },
+      };
+    }
     await act(async () => button(t("common.save"), dialog()).click());
     await flush();
     expect(writes()).toHaveLength(1);
     expect(writes()[0].body).toEqual({
-      revision: current.revision, provider: `launcher.${api}`, model: `${api}-new`, effort: "high",
+      revision, provider: `launcher.${api}`, model: `${api}-new`, effort: "high",
     });
+
+    if (api === "chat") {
+      await open();
+      expect(select(t("settings-modelconfiguration.effort")).value).toBe("high");
+      await choose(select(t("settings-modelconfiguration.effort")), "");
+      await act(async () => button(t("common.save"), dialog()).click());
+      await flush();
+      expect(writes()[1].body).toEqual({ revision: revision + 1, provider: "launcher.chat", model: "chat-new", effort: null });
+    }
+  });
+
+  it("does not offer or save Chat effort after switching from Messages on an older hub", async () => {
+    delete providers[2].chat_effort;
+    current.override = { provider: "launcher.messages", model: "messages-default" };
+    current.effective = { ...current.override };
+    await render();
+    await choose(select(t("settings-modelconfiguration.model_provider")), "launcher.chat");
+    expect(select(t("settings-modelconfiguration.effort"))).toBeUndefined();
+    await choose(select(t("settings-modelconfiguration.api_models")), "chat-new");
+    await act(async () => button(t("common.save"), dialog()).click());
+    await flush();
+    expect(writes()).toHaveLength(1);
+    expect(writes()[0].body).toEqual({ revision: current.revision, provider: "launcher.chat", model: "chat-new" });
   });
 
   it("tests the draft provider, raw model ID and effort without saving, including cancel/reopen", async () => {
@@ -242,6 +279,18 @@ describe.each(["kb", "inbox.triage", "agent.delegate"])("%s Direct API editor", 
     expect(probes()[0].body).toEqual({ name: "chat", model: "chat-default", effort: "low" });
     expect(dialog().querySelector('[role="alert"]')?.textContent).toContain(t("settings-modelconfiguration.api_test_effort"));
     expect(dialog().textContent).not.toContain(t("settings-modelconfiguration.api_test_ok", { ms: 20 }));
+    expect(writes()).toEqual([]);
+  });
+
+  it("accepts deliberate inherited-effort suppression for a no_effort Chat model", async () => {
+    current.override = { provider: "launcher.chat", model: "chat-none" };
+    current.effective = { ...current.override, effort: "low" };
+    result = { ok: true, ms: 20, model: "chat-none", effort: "" };
+    await render();
+    await testConnection();
+    expect(probes()[0].body).toEqual({ name: "chat", model: "chat-none", effort: "" });
+    expect(dialog().textContent).toContain(t("settings-modelconfiguration.api_test_ok", { ms: 20 }));
+    expect(dialog().textContent).not.toContain(t("settings-modelconfiguration.api_test_effort"));
     expect(writes()).toEqual([]);
   });
 

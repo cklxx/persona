@@ -292,7 +292,7 @@ function PurposeEditor({ manager, id, sourceName, catalog, onClose, onSaved }: {
       // one patch: the reset's, keeping the runtime and the profile (a use with a record of its own clears all three
       // whatever this page grouped it under),
       // else the draft's fields, effort with them where the provider it runs on takes one
-      const patch = restore ? resetPatch(p, draft.runtime, draft.config_dir) : modelPatch(p, draft, supportsField(p, "effort") || effortAllowed);
+      const patch = restore ? resetPatch(p, draft.runtime, draft.config_dir) : modelPatch(p, draft, effortAllowed);
       const r = await saveModelPurpose(p, patch, manager);
       if (!alive.current) return;
       setData(r);

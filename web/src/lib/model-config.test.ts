@@ -348,7 +348,9 @@ describe("the two meeting uses (#7980)", () => {
     expect(effortOffered(onChat, chat, chat)).toBe(false);
     expect(effortOffered(onChat, messages, chat)).toBe(true);
     expect(effortOffered(onChat, responses, chat)).toBe(true);
-    expect(effortOffered(minutes, chat, messages)).toBe(false);
+    const currentChat: ModelProvider = { ...chat, chat_effort: true };
+    expect(effortOffered(minutes, currentChat, messages)).toBe(true); // a current hub explicitly marks Chat effort
+    expect(effortOffered(minutes, chat, messages)).toBe(false); // the same DTO on an older hub, after Messages → Chat
     expect(effortOffered(minutes, messages, messages)).toBe(true);
     // the hub leaves effort out on a connection that takes one: it takes none here (an older hub), whatever is picked
     expect(effortOffered({ ...minutes, fields: ["provider", "model"] }, messages, messages)).toBe(false);

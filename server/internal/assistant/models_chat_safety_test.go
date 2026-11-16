@@ -175,6 +175,11 @@ func TestChatProviderAndPurposeAcceptEffort(t *testing.T) {
 	if got := s.storedLaunchers(context.Background())[0].Effort; got != "high" {
 		t.Fatalf("saved default effort = %q", got)
 	}
+	if !slices.ContainsFunc(s.modelProviders(context.Background()), func(p ModelProvider) bool {
+		return p.ID == "launcher.chat" && p.ChatEffort
+	}) {
+		t.Fatal("Chat provider does not advertise purpose effort support")
+	}
 	update := `{"kind":"api","api":"chat","base_url":"https://api.example.com","model":"m","effort":"max"}`
 	if code, body := launcherCall(t, mux, "PUT", "/api/v1/launchers/chat", update); code != 200 {
 		t.Fatalf("edit default effort: %d %s", code, body)

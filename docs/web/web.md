@@ -1164,12 +1164,16 @@ and **Meeting minutes** in Background processing · Direct API, right after Info
   revision (`resetPatch`), also when the page's catalog did not load, so an effort saved on an earlier provider goes too.
   With its provider cleared, the draft previews what it will follow: the category's provider from the catalog
   (`parentCategory`), with that launcher's model list, the category's model as its **Default**, the backend chip and
-  whether it takes an effort. Effort goes by the provider the draft runs on (`effortOffered`): the hub lists `effort` in
-  an API purpose's `fields` while the provider in effect takes one. Although the server now accepts effort on Chat
-  Completions too, this editor still treats Chat as unsupported until #8780, so Meeting minutes on a Chat Completions
-  connection offer choices again once a Messages or Responses one is picked, and Save sends them. The launcher's model list is
-  inert while a save is on its way, and the page shows only its latest catalog request's answer, so an older one still
-  on its way never puts back what a save's reload replaced.
+  whether it takes an effort. Effort goes by the provider the draft runs on (`effortOffered`): a current hub lists `effort`
+  for Messages, Responses and Chat Completions connections and marks Chat providers `chat_effort`. Against an older hub
+  that omits both for Chat, Meeting minutes offer choices again once a Messages or Responses connection is picked, and
+  Save sends them. If an older hub supplies `effort` for Messages or Responses but no Chat provider mark, switching to
+  Chat hides the field and Save omits it. The direct editor uses the selected model's `all_efforts` when present, else
+  `efforts`, limited to levels a direct-purpose Save accepts; `none` appears as **Off**. Chat treats absent metadata and
+  an empty effort list as unknown and uses the direct-purpose options (`off`, `low`, `medium`, `high`, `xhigh`, `max`);
+  only `no_effort: true` marks the model unsupported.
+  The launcher's model list is inert while a save is on its way, and the page shows only its latest catalog request's
+  answer, so an older one still on its way never puts back what a save's reload replaced.
 - **Unchanged in look**: the background supervisor (its **Follows Main chat** comes from the hub's `inherited_from`, its
   reset is **Inherit**), the AI twin, Lark /agent and the extensions' purposes. Against a hub before #7980 there are no
   such rows and nothing is asked by their ids.

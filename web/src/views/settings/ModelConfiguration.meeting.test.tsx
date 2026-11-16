@@ -26,7 +26,7 @@ const providers: ModelProvider[] = [
   { id: "launcher.claude", name: "Claude Code", kind: "launcher", agent: "claude" },
   { id: "launcher.codex", name: "Codex", kind: "launcher", agent: "codex" },
   { id: "api.messages", name: "Messages gateway", kind: "api", api: "messages", model: "api-default", has_key: true },
-  { id: "api.chat", name: "Chat gateway", kind: "api", api: "chat", model: "chat-default", has_key: true },
+  { id: "api.chat", name: "Chat gateway", kind: "api", api: "chat", chat_effort: true, model: "chat-default", has_key: true },
 ];
 /** The catalog's names in the hub's language: the page's words take the category's name from there. */
 const NAMES: Record<string, Record<string, string>> = {
@@ -179,6 +179,7 @@ beforeEach(async () => {
   catalogGate = undefined;
   patchGate = undefined;
   patches = [];
+  providers[3].chat_effort = true;
   stored = {};
   follows("meeting.room", MAIN);
   follows("meeting.minutes", KB);
@@ -265,9 +266,23 @@ describe("the meeting uses' models (#7980)", () => {
     expect([...dialog().querySelectorAll<HTMLOptionElement>("select option")][0].textContent).toBe("Follow Information processing");
     expect(effort()).not.toBeNull();
     await choose("api.chat");
-    expect(effort()).toBeNull();
+    expect(effort()).not.toBeNull();
     await choose("api.messages");
     expect(effort()).not.toBeNull();
+  });
+
+  it("the minutes' editor hides and omits Chat effort after a Messages switch on an older hub", async () => {
+    delete providers[3].chat_effort;
+    setApart("meeting.minutes", { provider: "api.messages", model: "api-model" }, 4);
+    await render();
+    await open("meeting.minutes");
+    expect(effort()).not.toBeNull();
+    await choose("api.chat");
+    expect(effort()).toBeNull();
+    type(modelField()!, "chat-model");
+    await act(async () => button("Save", dialog())!.click());
+    await flush();
+    expect(patches).toEqual([{ path: "/api/v1/model-config/purposes/meeting.minutes", body: { revision: 4, provider: "api.chat", model: "chat-model" } }]);
   });
 
   it.each([

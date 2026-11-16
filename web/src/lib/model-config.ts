@@ -20,6 +20,8 @@ export interface ModelProvider {
   kind: "api" | "launcher" | "plugin";
   agent?: string;
   api?: ProviderAPI;
+  /** A current hub accepts purpose effort on this Chat connection; absent on older hubs. */
+  chat_effort?: boolean;
   model?: string;
   machines?: string[];
   hidden?: boolean;

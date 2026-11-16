@@ -29,6 +29,9 @@ const provider: ModelProvider = {
 const models = [
   { id: "raw-a", name: "Alias A", efforts: ["low", "high"], default_effort: "low" },
   { id: "raw-b", name: "raw-b", efforts: [] },
+  { id: "raw-none", name: "raw-none", efforts: [], no_effort: true },
+  { id: "raw-off", name: "raw-off", efforts: ["off", "low", "high"] },
+  { id: "raw-direct", name: "raw-direct", efforts: ["low", "high", "max"], all_efforts: ["minimal", "none", "low", "high", "ultra"] },
 ];
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
@@ -60,6 +63,7 @@ function Harness() {
       provider={currentProvider}
       draft={draft}
       disabled={false}
+      effortAllowed
       onChange={(change) => {
         patch = change;
         draft = { ...draft, ...change };
@@ -140,6 +144,7 @@ it("leaves Use default to the saved connection instead of explicitly clearing it
       provider={currentProvider}
       draft={draft}
       disabled={false}
+      effortAllowed
       onChange={() => {}}
     />,
   ));
@@ -194,16 +199,69 @@ describe("DirectAPIEditor", () => {
     expect(effortSelect().disabled).toBe(false);
 
     currentProvider = { ...provider, api: "chat" };
-    draft = { ...draft, effort: "legacy-level" };
+    draft = { ...draft, model: "raw-none", effort: "legacy-level" };
     await render();
     expect(host.textContent).toContain(t("settings-modelconfiguration.api_effort_unsupported"));
     expect([...effortSelect().options].map((option) => option.value)).toContain("legacy-level");
+
+    draft = { ...draft, model: "raw-a" };
+    await render();
+    expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_effort_unsupported"));
+    expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "legacy-level", "low", "high"]);
+    expect(effortSelect().disabled).toBe(false);
   });
 
-  it("offers testable protocol efforts when discovery has no model-specific metadata", async () => {
+  it("treats an empty Chat effort list as unknown instead of unsupported", async () => {
+    currentProvider = { ...provider, api: "chat" };
+    draft = { ...draft, model: "raw-b", effort: "" };
+    await render();
+    expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "off", "low", "medium", "high", "xhigh", "max"]);
+    expect(effortSelect().disabled).toBe(false);
+    expect(host.textContent).toContain(t("settings-modelconfiguration.api_effort_unknown"));
+    expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_effort_unsupported"));
+  });
+
+  it("uses Chat's complete capability list without offering levels purpose Save rejects", async () => {
+    currentProvider = { ...provider, api: "chat" };
+    draft = { ...draft, model: "raw-direct", effort: "" };
+    await render();
+    expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "off", "low", "high"]);
+    expect(host.textContent).toContain(t("settings-modelconfiguration.api_effort_hint"));
+  });
+
+  it("keeps a reported Off option when another effort is current", async () => {
+    draft = { ...draft, model: "raw-off", effort: "low" };
+    await render();
+    expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "off", "low", "high"]);
+  });
+
+  it("preserves a current none value with the Off label", async () => {
+    currentProvider = { ...provider, api: "chat" };
+    draft = { ...draft, model: "raw-direct", effort: "none" };
+    await render();
+    const current = effortSelect().selectedOptions[0];
+    expect(current.value).toBe("none");
+    expect(current.textContent).toBe(t("settings-modelconfiguration.model_current", {
+      id: t("settings-modelconfiguration.api_effort_off"),
+    }));
+  });
+
+  it("does not misreport a no_effort Chat model's deliberate default suppression", async () => {
+    currentProvider = { ...provider, api: "chat" };
+    draft = { ...draft, model: "raw-none", effort: "" };
+    await render();
+    await testProbe();
+    await flush();
+    expect(calls.at(-1)!.body).toEqual({ name: "gateway", model: "raw-none", effort: "" });
+    expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_ok", { ms: 12 }));
+    expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_test_effort"));
+  });
+
+  it.each(["responses", "chat"] as const)("offers testable %s protocol efforts when discovery has no model-specific metadata", async (api) => {
+    currentProvider = { ...provider, api };
     draft = { ...draft, model: "unlisted-model", effort: "" };
     await render();
-    expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
+    expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "off", "low", "medium", "high", "xhigh", "max"]);
     expect(host.textContent).toContain(t("settings-modelconfiguration.api_effort_unknown"));
     await act(async () => {
       effortSelect().value = "high";
@@ -213,6 +271,13 @@ describe("DirectAPIEditor", () => {
     await flush();
     expect(calls.at(-1)!.body).toMatchObject({ model: "unlisted-model", effort: "high" });
     expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_ok", { ms: 12 }));
+  });
+
+  it.each([["messages", "messages" as const], ["legacy", undefined]])("keeps the Messages fallback for %s providers without model metadata", async (_, api) => {
+    currentProvider = { ...provider, api };
+    draft = { ...draft, model: "unlisted-model", effort: "" };
+    await render();
+    expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "off", "low", "medium", "high", "xhigh", "max"]);
   });
 
   it("keeps manual model entry usable after discovery failure", async () => {

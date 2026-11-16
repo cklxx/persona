@@ -41,17 +41,18 @@ type modelRecord struct {
 
 // ModelProvider is one provider as Settings › Model configuration offers it: never its key.
 type ModelProvider struct {
-	ID       string        `json:"id"`
-	Name     string        `json:"name"`
-	Kind     string        `json:"kind"`
-	Agent    string        `json:"agent,omitempty"`
-	API      string        `json:"api,omitempty"`
-	Model    string        `json:"model,omitempty"`
-	Machines []string      `json:"machines,omitempty"`
-	Hidden   bool          `json:"hidden,omitempty"`
-	HasKey   bool          `json:"has_key,omitempty"`
-	Models   []ModelChoice `json:"models,omitempty"`
-	Status   string        `json:"status,omitempty"`
+	ID         string        `json:"id"`
+	Name       string        `json:"name"`
+	Kind       string        `json:"kind"`
+	Agent      string        `json:"agent,omitempty"`
+	API        string        `json:"api,omitempty"`
+	ChatEffort bool          `json:"chat_effort,omitempty"`
+	Model      string        `json:"model,omitempty"`
+	Machines   []string      `json:"machines,omitempty"`
+	Hidden     bool          `json:"hidden,omitempty"`
+	HasKey     bool          `json:"has_key,omitempty"`
+	Models     []ModelChoice `json:"models,omitempty"`
+	Status     string        `json:"status,omitempty"`
 }
 
 type ModelChoice = assistantwire.ModelChoice
@@ -422,7 +423,7 @@ func (s *Service) modelProviders(ctx context.Context) []ModelProvider {
 		if apiName == "" {
 			apiName = "messages"
 		}
-		out = append(out, ModelProvider{ID: x.id, Name: x.name, Kind: "api", API: apiName, Model: c.Model, HasKey: c.APIKeyFile != "" || c.APIKey != ""})
+		out = append(out, ModelProvider{ID: x.id, Name: x.name, Kind: "api", API: apiName, ChatEffort: apiName == "chat", Model: c.Model, HasKey: c.APIKeyFile != "" || c.APIKey != ""})
 	}
 	for _, v := range s.launcherViews(ctx) {
 		kind := v.Kind
@@ -437,7 +438,7 @@ func (s *Service) modelProviders(ctx context.Context) []ModelProvider {
 		if kind == "launcher" {
 			agent = viewAgent(v)
 		}
-		out = append(out, ModelProvider{ID: "launcher." + v.Name, Name: cmp.Or(v.DisplayName, v.Name), Kind: kind, Agent: agent, API: apiName, Model: v.Model, Machines: v.Machines, Hidden: v.Hidden, HasKey: v.HasKey})
+		out = append(out, ModelProvider{ID: "launcher." + v.Name, Name: cmp.Or(v.DisplayName, v.Name), Kind: kind, Agent: agent, API: apiName, ChatEffort: kind == "api" && apiName == "chat", Model: v.Model, Machines: v.Machines, Hidden: v.Hidden, HasKey: v.HasKey})
 	}
 	if !slices.ContainsFunc(out, func(p ModelProvider) bool { return p.ID == "launcher.claude" }) {
 		p := ModelProvider{ID: "launcher.claude", Name: mc(l, "provider_claude_default"), Kind: "launcher", Agent: "claude"}

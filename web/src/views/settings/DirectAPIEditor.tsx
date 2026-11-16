@@ -4,7 +4,7 @@ import { api, ApiError, errorText, HubTimeoutError } from "../../lib/api";
 import { MANAGER_HEADER } from "../../lib/manager-choice";
 import type { ModelDraft, ModelProvider, ModelPurpose } from "../../lib/model-config";
 import { supportsField } from "../../lib/model-config-execution";
-import type { ProviderModel, TestResult } from "../../lib/providers";
+import { EFFORT_LEVELS, type ProviderModel, type TestResult } from "../../lib/providers";
 import { effortTitle } from "../../lib/session-actions";
 import { Button } from "../../ui/atoms";
 
@@ -54,11 +54,13 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
   const inheritedEffort = sameProvider && !purpose.override.effort ? purpose.effective.effort : undefined;
   const effort = draft.effort.trim() || inheritedEffort || (purpose.id === "inbox.triage" ? "off" : "");
   const selected = models.find((item) => item.id === model);
-  const reportedEfforts = selected?.efforts;
-  const efforts = provider.api === "chat" ? [] : reportedEfforts ?? (provider.api === "responses"
-    ? ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
-    : ["off", "low", "medium", "high", "xhigh", "max"]);
-  const unsupported = provider.api === "chat" || efforts?.length === 0;
+  const reported = selected?.all_efforts?.length ? selected.all_efforts : selected?.efforts;
+  // Purpose Save accepts proto.EffortLevels plus off/none. Chat's all_efforts is its exact runtime capability list.
+  const reportedEfforts = reported ? [...new Set(reported.flatMap((value) =>
+    value === "none" || value === "off" ? ["off"] : EFFORT_LEVELS.includes(value) ? [value] : []))] : undefined;
+  // Chat reports an empty list as unknown; only no_effort explicitly rules the control out.
+  const unsupported = provider.api === "chat" ? selected?.no_effort === true : selected?.efforts?.length === 0;
+  const efforts = unsupported ? [] : reported?.length ? reportedEfforts ?? [] : ["off", ...EFFORT_LEVELS];
   const effortLabel = (value: string) => value === "off" || value === "none" ? t("settings-modelconfiguration.api_effort_off") : effortTitle(value);
 
   const retire = () => {
@@ -113,14 +115,17 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
     setVerified(null);
     setFailure(null);
     try {
+      // Explicit empty clears a stored provider default; an omitted field inherits it (probeInput.Effort).
+      const suppressEffort = provider.api === "chat" && selected?.no_effort === true && !draft.effort.trim();
+      const requestedEffort = suppressEffort ? "" : effort;
       const result = await api<ProbeResult>("/launchers/test", {
-        method: "POST", json: { name, model, effort: effort || undefined }, signal: controller.signal, timeout: 35_000,
+        method: "POST", json: { name, model, effort: suppressEffort ? "" : requestedEffort || undefined }, signal: controller.signal, timeout: 35_000,
         headers: { [MANAGER_HEADER]: manager }, isAuthContextCurrent: current,
       });
       if (!current()) return;
       if (!result.ok) setFailure(probeFailure(result.error ?? "", result.code));
       // An older hub ignores effort. Its successful model-only check must not verify this combination.
-      else if (effort && result.effort !== effort) setFailure({ kind: "effort" });
+      else if (requestedEffort && result.effort !== requestedEffort) setFailure({ kind: "effort" });
       else setVerified(result);
     } catch (error) {
       if (!current()) return;
@@ -153,15 +158,15 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
         <button type="button" disabled={disabled || listing} onClick={() => setReload((value) => value + 1)} className="shrink-0 whitespace-nowrap font-medium text-accent-ink hover:underline">{t("settings-modelconfiguration.retry")}</button>
       </div>}
     </div>}
-    {(supportsField(purpose, "effort") || effortAllowed) && <label className="block">
+    {effortAllowed && <label className="block">
       <span className="mb-1 block text-label font-medium text-ink-2">{t("settings-modelconfiguration.effort")}</span>
       <select className={inputClass} value={draft.effort} disabled={disabled || (unsupported && !draft.effort)} onChange={(event) => change({ effort: event.target.value })}>
         <option value="">{inheritedEffort ? t("settings-modelconfiguration.api_effort_inherit", { effort: effortLabel(inheritedEffort) }) : t("settings-modelconfiguration.follow_default")}</option>
-        {draft.effort && !efforts?.includes(draft.effort) && <option value={draft.effort}>{t("settings-modelconfiguration.model_current", { id: draft.effort })}</option>}
+        {draft.effort && !efforts?.includes(draft.effort) && <option value={draft.effort}>{t("settings-modelconfiguration.model_current", { id: effortLabel(draft.effort) })}</option>}
         {efforts.map((value) => <option key={value} value={value}>{effortLabel(value)}</option>)}
       </select>
       <span className="mt-1 block text-submeta text-ink-3">{unsupported ? t("settings-modelconfiguration.api_effort_unsupported")
-        : reportedEfforts === undefined ? t("settings-modelconfiguration.api_effort_unknown") : t("settings-modelconfiguration.api_effort_hint")}</span>
+        : reportedEfforts?.length ? t("settings-modelconfiguration.api_effort_hint") : t("settings-modelconfiguration.api_effort_unknown")}</span>
     </label>}
     <div className="flex flex-col items-start gap-2">
       <div className="flex flex-wrap items-center gap-2">
