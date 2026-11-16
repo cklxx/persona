@@ -31,6 +31,7 @@ const models = [
   { id: "raw-b", name: "raw-b", efforts: [] },
   { id: "raw-none", name: "raw-none", efforts: [], no_effort: true },
   { id: "raw-off", name: "raw-off", efforts: ["off", "low", "high"] },
+  { id: "raw-efforts-only", name: "raw-efforts-only", efforts: ["low"] },
   { id: "raw-minimal", name: "raw-minimal", efforts: ["low"], all_efforts: ["minimal"] },
   { id: "raw-direct", name: "raw-direct", efforts: ["low", "high", "max"], all_efforts: ["minimal", "none", "low", "high", "ultra"] },
 ];
@@ -116,7 +117,7 @@ beforeEach(async () => {
   calls = [];
   patch = undefined;
   manager = "manager-one";
-  currentProvider = provider;
+  currentProvider = { ...provider, models };
   draft = { provider: provider.id, model: "raw-a", effort: "low", runtime: "" };
   jsonFetch((call) => call.path.endsWith("/launchers/discover")
     ? response({ models })
@@ -199,7 +200,7 @@ describe("DirectAPIEditor", () => {
     expect([...effortSelect().options].map((option) => option.value)).toContain("legacy-level");
     expect(effortSelect().disabled).toBe(false);
 
-    currentProvider = { ...provider, api: "chat" };
+    currentProvider = { ...provider, api: "chat", models };
     draft = { ...draft, model: "raw-none", effort: "legacy-level" };
     await render();
     expect(host.textContent).toContain(t("settings-modelconfiguration.api_effort_unsupported"));
@@ -208,12 +209,12 @@ describe("DirectAPIEditor", () => {
     draft = { ...draft, model: "raw-a" };
     await render();
     expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_effort_unsupported"));
-    expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "legacy-level", "low", "high"]);
+    expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "legacy-level", "off", "low", "high"]);
     expect(effortSelect().disabled).toBe(false);
   });
 
   it("treats an empty Chat effort list as unknown instead of unsupported", async () => {
-    currentProvider = { ...provider, api: "chat" };
+    currentProvider = { ...provider, api: "chat", models };
     draft = { ...draft, model: "raw-b", effort: "" };
     await render();
     expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "off", "low", "medium", "high", "xhigh", "max"]);
@@ -222,12 +223,41 @@ describe("DirectAPIEditor", () => {
     expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_effort_unsupported"));
   });
 
+  it("uses stored Chat capabilities when discovery has no model entry", async () => {
+    currentProvider = { ...provider, api: "chat", models };
+    draft = { ...draft, model: "raw-none", effort: "" };
+    jsonFetch((call) => call.path.endsWith("/launchers/discover")
+      ? response({ models: [] })
+      : response({ ok: true, ms: 12, effort: "" }));
+    await render();
+    expect([...effortSelect().options].map((option) => option.value)).toEqual([""]);
+    expect(effortSelect().disabled).toBe(true);
+    expect(host.textContent).toContain(t("settings-modelconfiguration.api_effort_unsupported"));
+  });
+
   it("uses Chat's complete capability list without offering levels purpose Save rejects", async () => {
-    currentProvider = { ...provider, api: "chat" };
+    currentProvider = { ...provider, api: "chat", models };
     draft = { ...draft, model: "raw-direct", effort: "" };
     await render();
     expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "off", "low", "high"]);
     expect(host.textContent).toContain(t("settings-modelconfiguration.api_effort_hint"));
+  });
+
+  it("keeps Off available for Chat efforts-only metadata", async () => {
+    currentProvider = { ...provider, api: "chat", models };
+    draft = { ...draft, model: "raw-efforts-only", effort: "" };
+    await render();
+    expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "off", "low"]);
+  });
+
+  it("keeps projected Responses choices instead of applying Chat's exact list", async () => {
+    draft = { ...draft, model: "raw-minimal", effort: "" };
+    await render();
+    expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "low"]);
+    expect(effortSelect().disabled).toBe(false);
+
+    await changeDraft({ model: "raw-direct" });
+    expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "low", "high", "max"]);
   });
 
   it("keeps a reported Off option when another effort is current", async () => {
@@ -237,7 +267,7 @@ describe("DirectAPIEditor", () => {
   });
 
   it("preserves a current none value with one Off option", async () => {
-    currentProvider = { ...provider, api: "chat" };
+    currentProvider = { ...provider, api: "chat", models };
     draft = { ...draft, model: "raw-direct", effort: "none" };
     await render();
     const options = [...effortSelect().options];
@@ -248,7 +278,7 @@ describe("DirectAPIEditor", () => {
   });
 
   it("explains when exact reported levels cannot be saved for this purpose", async () => {
-    currentProvider = { ...provider, api: "chat" };
+    currentProvider = { ...provider, api: "chat", models };
     draft = { ...draft, model: "raw-minimal", effort: "" };
     await render();
     expect([...effortSelect().options].map((option) => option.value)).toEqual([""]);
@@ -261,11 +291,11 @@ describe("DirectAPIEditor", () => {
     expect(effortSelect().disabled).toBe(false);
   });
 
-  it.each(["", "off", "none"])("accepts the hub's no_effort suppression for draft effort %s", async (value) => {
-    currentProvider = { ...provider, api: "chat" };
+  it.each(["", "off", "none"])("accepts stored no_effort suppression for draft effort %s when discovery omits the flag", async (value) => {
+    currentProvider = { ...provider, api: "chat", models };
     draft = { ...draft, model: "raw-none", effort: value };
     jsonFetch((call) => call.path.endsWith("/launchers/discover")
-      ? response({ models })
+      ? response({ models: models.map((item) => item.id === "raw-none" ? { id: item.id, name: item.name, efforts: [] } : item) })
       : response({ ok: true, ms: 12, effort: "" }));
     await render();
     await testProbe();
@@ -275,8 +305,25 @@ describe("DirectAPIEditor", () => {
     expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_test_effort"));
   });
 
+  it("rejects an empty echo when fresh discovery reports no_effort but the stored model does not", async () => {
+    currentProvider = {
+      ...provider,
+      api: "chat",
+      models: models.map((item) => item.id === "raw-none" ? { ...item, no_effort: false } : item),
+    };
+    draft = { ...draft, model: "raw-none", effort: "low" };
+    jsonFetch((call) => call.path.endsWith("/launchers/discover")
+      ? response({ models })
+      : response({ ok: true, ms: 12, effort: "" }));
+    await render();
+    await testProbe();
+    await flush();
+    expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_effort"));
+    expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_test_ok", { ms: 12 }));
+  });
+
   it("rejects a different nonempty effort for a no_effort Chat model", async () => {
-    currentProvider = { ...provider, api: "chat" };
+    currentProvider = { ...provider, api: "chat", models };
     draft = { ...draft, model: "raw-none", effort: "low" };
     jsonFetch((call) => call.path.endsWith("/launchers/discover")
       ? response({ models })
@@ -290,7 +337,7 @@ describe("DirectAPIEditor", () => {
 
   it("waits for model discovery before testing effort", async () => {
     const discovered = deferred<Response>();
-    currentProvider = { ...provider, api: "chat" };
+    currentProvider = { ...provider, api: "chat", models };
     draft = { ...draft, model: "raw-none", effort: "low" };
     jsonFetch((call) => call.path.endsWith("/launchers/discover")
       ? discovered.promise
@@ -313,7 +360,7 @@ describe("DirectAPIEditor", () => {
     const pending = deferred<Response>();
     const refreshed = deferred<Response>();
     let discoveries = 0;
-    currentProvider = { ...provider, api: "chat" };
+    currentProvider = { ...provider, api: "chat", models };
     draft = { ...draft, model: "raw-none", effort: "low" };
     jsonFetch((call) => {
       if (call.path.endsWith("/launchers/discover")) {
@@ -340,10 +387,13 @@ describe("DirectAPIEditor", () => {
   });
 
   it.each(["responses", "chat"] as const)("offers testable %s protocol efforts when discovery has no model-specific metadata", async (api) => {
-    currentProvider = { ...provider, api };
+    currentProvider = { ...provider, api, models };
     draft = { ...draft, model: "unlisted-model", effort: "" };
     await render();
-    expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "off", "low", "medium", "high", "xhigh", "max"]);
+    const expected = api === "responses"
+      ? ["", "off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
+      : ["", "off", "low", "medium", "high", "xhigh", "max"];
+    expect([...effortSelect().options].map((option) => option.value)).toEqual(expected);
     expect(host.textContent).toContain(t("settings-modelconfiguration.api_effort_unknown"));
     await act(async () => {
       effortSelect().value = "high";
@@ -356,7 +406,7 @@ describe("DirectAPIEditor", () => {
   });
 
   it.each([["messages", "messages" as const], ["legacy", undefined]])("keeps the Messages fallback for %s providers without model metadata", async (_, api) => {
-    currentProvider = { ...provider, api };
+    currentProvider = { ...provider, api, models };
     draft = { ...draft, model: "unlisted-model", effort: "" };
     await render();
     expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "off", "low", "medium", "high", "xhigh", "max"]);

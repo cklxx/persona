@@ -213,6 +213,19 @@ func TestChatProviderAndPurposeAcceptEffort(t *testing.T) {
 	}
 }
 
+func TestChatModelProviderIncludesStoredCapabilities(t *testing.T) {
+	s, mux := launcherTestService(t)
+	create := `{"name":"chat","kind":"api","api":"chat","base_url":"https://api.example.com","model":"m","models":[{"id":"m","no_effort":true}]}`
+	if code, body := launcherCall(t, mux, "POST", "/api/v1/launchers", create); code != 200 {
+		t.Fatalf("create: %d %s", code, body)
+	}
+	providers := s.modelProviders(context.Background())
+	i := slices.IndexFunc(providers, func(p ModelProvider) bool { return p.ID == "launcher.chat" })
+	if i < 0 || len(providers[i].Models) != 1 || !providers[i].Models[0].NoEffort {
+		t.Fatalf("stored capabilities missing from model configuration: %+v", providers)
+	}
+}
+
 func TestChatProbeRejectsUnsupportedTransport(t *testing.T) {
 	for _, operation := range []string{"test", "discover"} {
 		for _, tc := range []struct {

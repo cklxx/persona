@@ -13,6 +13,7 @@ vi.mock("../../ui/atoms", async (original) => ({ ...(await original<typeof impor
 import { initI18n, t } from "../../i18n";
 import { MANAGER_HEADER } from "../../lib/manager-choice";
 import type { ModelProvider, ModelPurpose } from "../../lib/model-config";
+import type { ProviderModel } from "../../lib/providers";
 import { ModelConfiguration } from "./ModelConfiguration";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -22,7 +23,7 @@ const providers: ModelProvider[] = [
   { id: "launcher.responses", name: "Responses provider", kind: "api", api: "responses", model: "responses-default" },
   { id: "launcher.chat", name: "Chat provider", kind: "api", api: "chat", chat_effort: true, model: "chat-default" },
 ];
-const models = {
+const models: Record<"messages" | "responses" | "chat", ProviderModel[]> = {
   messages: [
     { id: "messages-default", name: "Messages default", efforts: ["off", "low", "high"] },
     { id: "messages-new", name: "Friendly model", efforts: ["low", "high"] },
@@ -91,6 +92,8 @@ beforeEach(async () => {
   calls = [];
   result = undefined;
   providers[2].chat_effort = true;
+  models.chat[2] = { id: "chat-none", efforts: [], no_effort: true };
+  providers[2].models = models.chat.map((model) => ({ ...model }));
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input).split("?")[0];
     const method = init?.method ?? "GET";
@@ -282,7 +285,8 @@ describe.each(["kb", "inbox.triage", "agent.delegate"])("%s Direct API editor", 
     expect(writes()).toEqual([]);
   });
 
-  it("accepts deliberate inherited-effort suppression for a no_effort Chat model", async () => {
+  it("accepts deliberate inherited-effort suppression from stored no_effort metadata", async () => {
+    models.chat[2] = { ...models.chat[2], no_effort: false };
     current.override = { provider: "launcher.chat", model: "chat-none" };
     current.effective = { ...current.override, effort: "low" };
     result = { ok: true, ms: 20, model: "chat-none", effort: "" };

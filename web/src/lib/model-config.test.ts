@@ -349,6 +349,7 @@ describe("the two meeting uses (#7980)", () => {
     expect(effortOffered(onChat, messages, chat)).toBe(true);
     expect(effortOffered(onChat, responses, chat)).toBe(true);
     const currentChat: ModelProvider = { ...chat, chat_effort: true };
+    expect(effortOffered(minutes, chat, chat)).toBe(true); // #8779 hub: the effective Chat fields already admit effort
     expect(effortOffered(minutes, currentChat, messages)).toBe(true); // a current hub explicitly marks Chat effort
     expect(effortOffered(minutes, chat, messages)).toBe(false); // the same DTO on an older hub, after Messages → Chat
     expect(effortOffered(minutes, messages, messages)).toBe(true);

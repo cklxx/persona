@@ -204,12 +204,14 @@ function takesEffortProvider(v?: ModelProvider): boolean {
 
 /** Whether the editor offers a thinking effort for a draft that runs on `chosen`. A current hub lists `effort` for Chat
  *  and marks the provider `chat_effort`; without that mark, an older hub's field for Messages or Responses does not
- *  admit Chat. On an older hub that omits effort for Chat, picking Messages or Responses offers it again (#7980). */
+ *  admit a different Chat provider. An effort field already supplied for the effective Chat provider remains valid.
+ *  On an older hub that omits effort for Chat, picking Messages or Responses offers it again (#7980). */
 export function effortOffered(p: ModelPurpose, chosen: ModelProvider | undefined, effective: ModelProvider | undefined, followsAgents = false): boolean {
   const explicit = supportsField(p, "effort");
   const field = explicit
     || (p.kind === "api" && !!p.fields?.includes("provider") && !!effective && !takesEffortProvider(effective));
-  const chat = explicit && chosen?.kind === "api" && chosen.api === "chat" && chosen.chat_effort === true;
+  const chat = explicit && chosen?.kind === "api" && chosen.api === "chat"
+    && (chosen.chat_effort === true || effective?.id === chosen.id);
   return field && (followsAgents || chat || takesEffortProvider(chosen));
 }
 

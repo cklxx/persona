@@ -54,14 +54,25 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
   const inheritedEffort = sameProvider && !purpose.override.effort ? purpose.effective.effort : undefined;
   const effort = draft.effort.trim() || inheritedEffort || (purpose.id === "inbox.triage" ? "off" : "");
   const selected = models.find((item) => item.id === model);
-  const reported = selected?.all_efforts?.length ? selected.all_efforts : selected?.efforts;
+  const stored = provider.models?.find((item) => item.id === model);
+  const chat = provider.api === "chat";
+  // Chat requests and named probes apply stored capabilities. Discovery is the fallback when no entry is stored.
+  const capability = chat ? stored ?? selected : selected;
+  const exact = chat && !!capability?.all_efforts?.length;
+  const reported = exact ? capability?.all_efforts : capability?.efforts;
   // Purpose Save accepts proto.EffortLevels plus off/none. Chat's all_efforts is its exact runtime capability list.
-  const reportedEfforts = reported ? [...new Set(reported.flatMap((value) =>
-    value === "none" || value === "off" ? ["off"] : EFFORT_LEVELS.includes(value) ? [value] : []))] : undefined;
+  const reportedEfforts = chat && reported ? [...new Set(reported.flatMap((value) =>
+    value === "none" || value === "off" ? ["off"] : EFFORT_LEVELS.includes(value) ? [value] : []))] : reported;
   // Chat reports an empty list as unknown; only no_effort explicitly rules the control out.
-  const unsupported = provider.api === "chat" ? selected?.no_effort === true : selected?.efforts?.length === 0;
-  const unavailable = !unsupported && !!reported?.length && !reportedEfforts?.length;
-  const efforts = unsupported || unavailable ? [] : reported?.length ? reportedEfforts ?? [] : ["off", ...EFFORT_LEVELS];
+  const unsupported = chat ? capability?.no_effort === true : selected?.efforts?.length === 0;
+  const unavailable = chat && !unsupported && !!reported?.length && !reportedEfforts?.length;
+  // Efforts-only Chat metadata keeps Off as a separate runtime control.
+  const reportedOptions = chat && reported?.length && !exact && !reportedEfforts?.includes("off")
+    ? ["off", ...(reportedEfforts ?? [])] : reportedEfforts;
+  const fallback = provider.api === "responses"
+    ? ["off", "minimal", ...EFFORT_LEVELS, "ultra"]
+    : ["off", ...EFFORT_LEVELS];
+  const efforts = unsupported || unavailable ? [] : reported?.length ? reportedOptions ?? [] : fallback;
   const effortLabel = (value: string) => value === "off" || value === "none" ? t("settings-modelconfiguration.api_effort_off") : effortTitle(value);
 
   const retire = () => {
@@ -75,7 +86,7 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
     setVerified(null);
     setFailure(null);
     return retire;
-  }, [manager, purpose.id, purpose.revision, provider.id, provider.api, draft.provider, draft.model, draft.effort, model, effort, selected?.no_effort, unresolvedInheritance]);
+  }, [manager, purpose.id, purpose.revision, provider.id, provider.api, draft.provider, draft.model, draft.effort, model, effort, selected?.no_effort, stored?.no_effort, unresolvedInheritance]);
   useLayoutEffect(() => () => discovery.current?.abort(), [manager, provider.id, provider.api, draft.provider]);
 
   useEffect(() => {
@@ -125,7 +136,7 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
       if (!result.ok) setFailure(probeFailure(result.error ?? "", result.code));
       // The hub applies its stored no_effort capability to probes and real calls alike.
       else if (requestedEffort && result.effort !== requestedEffort
-        && !(provider.api === "chat" && selected?.no_effort === true && result.effort === "")) setFailure({ kind: "effort" });
+        && !(chat && stored?.no_effort === true && result.effort === "")) setFailure({ kind: "effort" });
       else setVerified(result);
     } catch (error) {
       if (!current()) return;

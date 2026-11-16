@@ -1165,15 +1165,19 @@ and **Meeting minutes** in Background processing · Direct API, right after Info
   With its provider cleared, the draft previews what it will follow: the category's provider from the catalog
   (`parentCategory`), with that launcher's model list, the category's model as its **Default**, the backend chip and
   whether it takes an effort. Effort goes by the provider the draft runs on (`effortOffered`): a current hub lists `effort`
-  for Messages, Responses and Chat Completions connections and marks Chat providers `chat_effort`. Against an older hub
-  that omits both for Chat, Meeting minutes offer choices again once a Messages or Responses connection is picked, and
-  Save sends them. If an older hub supplies `effort` for Messages or Responses but no Chat provider mark, switching to
-  Chat hides the field and Save omits it. The direct editor uses the selected model's `all_efforts` when present, else
-  `efforts`, limited to levels a direct-purpose Save accepts; `none` and `off` appear as **Off**, without duplicating a
-  current `none` value. If none of the exact reported levels can be saved, only the default remains and the editor says
-  those levels are unavailable; it does not substitute projected levels that Chat's exact runtime list would reject.
-  Chat treats absent metadata and an empty effort list as unknown and uses the direct-purpose options (`off`, `low`,
-  `medium`, `high`, `xhigh`, `max`); only `no_effort: true` marks the model unsupported.
+  for Messages, Responses and Chat Completions connections and marks Chat providers `chat_effort`. A hub that already
+  lists `effort` for the effective Chat provider keeps it available without that mark. Against an older hub that omits
+  both for Chat, Meeting minutes offer choices again once a Messages or Responses connection is picked, and Save sends
+  them. If an older hub supplies `effort` for Messages or Responses but no Chat provider mark, switching to a different
+  Chat provider hides the field and Save omits it. For Chat, the direct editor reads the selected model's stored
+  `providers[].models` capabilities, with discovery as the fallback when no entry is stored. It uses `all_efforts` when
+  present, else `efforts`, limited to levels a direct-purpose Save accepts; `none` and `off` appear as **Off**, without
+  duplicating a current `none` value. Efforts-only Chat metadata keeps **Off** as a separate control. If none of the
+  exact reported levels can be saved, only the default remains and the editor says those levels are unavailable; it
+  does not substitute projected levels that Chat's exact runtime list would reject. Responses and Messages keep their
+  projected `efforts` behavior, including the Responses unknown-metadata `minimal` and `ultra` choices. Chat treats
+  absent metadata and an empty effort list as unknown and uses the direct-purpose options (`off`, `low`, `medium`,
+  `high`, `xhigh`, `max`); only stored or fallback-discovered `no_effort: true` marks the model unsupported.
   The launcher's model list is inert while a save is on its way, and the page shows only its latest catalog request's
   answer, so an older one still on its way never puts back what a save's reload replaced.
 - **Unchanged in look**: the background supervisor (its **Follows Main chat** comes from the hub's `inherited_from`, its

@@ -1,7 +1,7 @@
 import { t } from "../i18n";
 import { MANAGER_HEADER } from "./manager-choice";
 import { api, enc } from "./api";
-import type { ProviderAPI } from "./providers";
+import type { ProviderAPI, ProviderModel } from "./providers";
 
 export interface ModelBinding {
   provider?: string;
@@ -23,6 +23,7 @@ export interface ModelProvider {
   /** A current hub accepts purpose effort on this Chat connection; absent on older hubs. */
   chat_effort?: boolean;
   model?: string;
+  models?: ProviderModel[];
   machines?: string[];
   hidden?: boolean;
   has_key?: boolean;
