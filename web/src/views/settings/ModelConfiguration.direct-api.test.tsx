@@ -288,10 +288,21 @@ describe.each(["kb", "inbox.triage", "agent.delegate"])("%s Direct API editor", 
     result = { ok: true, ms: 20, model: "chat-none", effort: "" };
     await render();
     await testConnection();
-    expect(probes()[0].body).toEqual({ name: "chat", model: "chat-none", effort: "" });
+    expect(probes()[0].body).toEqual({ name: "chat", model: "chat-none", effort: "low" });
     expect(dialog().textContent).toContain(t("settings-modelconfiguration.api_test_ok", { ms: 20 }));
     expect(dialog().textContent).not.toContain(t("settings-modelconfiguration.api_test_effort"));
     expect(writes()).toEqual([]);
+  });
+
+  it("accepts the inherited effort when the hub does not suppress it", async () => {
+    current.override = { provider: "launcher.chat", model: "chat-none" };
+    current.effective = { ...current.override, effort: "low" };
+    result = { ok: true, ms: 20, model: "chat-none", effort: "low" };
+    await render();
+    await testConnection();
+    expect(probes()[0].body).toEqual({ name: "chat", model: "chat-none", effort: "low" });
+    expect(dialog().textContent).toContain(t("settings-modelconfiguration.api_test_ok", { ms: 20 }));
+    expect(dialog().textContent).not.toContain(t("settings-modelconfiguration.api_test_effort"));
   });
 
   it("does not claim an effort was verified when an older hub ignores it", async () => {

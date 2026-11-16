@@ -60,7 +60,8 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
     value === "none" || value === "off" ? ["off"] : EFFORT_LEVELS.includes(value) ? [value] : []))] : undefined;
   // Chat reports an empty list as unknown; only no_effort explicitly rules the control out.
   const unsupported = provider.api === "chat" ? selected?.no_effort === true : selected?.efforts?.length === 0;
-  const efforts = unsupported ? [] : reported?.length ? reportedEfforts ?? [] : ["off", ...EFFORT_LEVELS];
+  const unavailable = !unsupported && !!reported?.length && !reportedEfforts?.length;
+  const efforts = unsupported || unavailable ? [] : reported?.length ? reportedEfforts ?? [] : ["off", ...EFFORT_LEVELS];
   const effortLabel = (value: string) => value === "off" || value === "none" ? t("settings-modelconfiguration.api_effort_off") : effortTitle(value);
 
   const retire = () => {
@@ -74,7 +75,7 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
     setVerified(null);
     setFailure(null);
     return retire;
-  }, [manager, purpose.id, purpose.revision, provider.id, provider.api, draft.provider, draft.model, draft.effort, model, effort, unresolvedInheritance]);
+  }, [manager, purpose.id, purpose.revision, provider.id, provider.api, draft.provider, draft.model, draft.effort, model, effort, selected?.no_effort, unresolvedInheritance]);
   useLayoutEffect(() => () => discovery.current?.abort(), [manager, provider.id, provider.api, draft.provider]);
 
   useEffect(() => {
@@ -107,7 +108,7 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
     onChange(patch);
   };
   const test = async () => {
-    if (disabled || !name || unresolvedInheritance || probe.current) return;
+    if (disabled || listing || !name || unresolvedInheritance || probe.current) return;
     const controller = new AbortController();
     probe.current = controller;
     const current = () => probe.current === controller && !controller.signal.aborted;
@@ -115,17 +116,16 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
     setVerified(null);
     setFailure(null);
     try {
-      // Explicit empty clears a stored provider default; an omitted field inherits it (probeInput.Effort).
-      const suppressEffort = provider.api === "chat" && selected?.no_effort === true && !draft.effort.trim();
-      const requestedEffort = suppressEffort ? "" : effort;
+      const requestedEffort = effort;
       const result = await api<ProbeResult>("/launchers/test", {
-        method: "POST", json: { name, model, effort: suppressEffort ? "" : requestedEffort || undefined }, signal: controller.signal, timeout: 35_000,
+        method: "POST", json: { name, model, effort: requestedEffort || undefined }, signal: controller.signal, timeout: 35_000,
         headers: { [MANAGER_HEADER]: manager }, isAuthContextCurrent: current,
       });
       if (!current()) return;
       if (!result.ok) setFailure(probeFailure(result.error ?? "", result.code));
-      // An older hub ignores effort. Its successful model-only check must not verify this combination.
-      else if (requestedEffort && result.effort !== requestedEffort) setFailure({ kind: "effort" });
+      // The hub applies its stored no_effort capability to probes and real calls alike.
+      else if (requestedEffort && result.effort !== requestedEffort
+        && !(provider.api === "chat" && selected?.no_effort === true && result.effort === "")) setFailure({ kind: "effort" });
       else setVerified(result);
     } catch (error) {
       if (!current()) return;
@@ -160,17 +160,18 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
     </div>}
     {effortAllowed && <label className="block">
       <span className="mb-1 block text-label font-medium text-ink-2">{t("settings-modelconfiguration.effort")}</span>
-      <select className={inputClass} value={draft.effort} disabled={disabled || (unsupported && !draft.effort)} onChange={(event) => change({ effort: event.target.value })}>
+      <select className={inputClass} value={draft.effort} disabled={disabled || (unsupported || unavailable) && !draft.effort} onChange={(event) => change({ effort: event.target.value })}>
         <option value="">{inheritedEffort ? t("settings-modelconfiguration.api_effort_inherit", { effort: effortLabel(inheritedEffort) }) : t("settings-modelconfiguration.follow_default")}</option>
         {draft.effort && !efforts?.includes(draft.effort) && <option value={draft.effort}>{t("settings-modelconfiguration.model_current", { id: effortLabel(draft.effort) })}</option>}
-        {efforts.map((value) => <option key={value} value={value}>{effortLabel(value)}</option>)}
+        {efforts.filter((value) => draft.effort !== "none" || value !== "off").map((value) => <option key={value} value={value}>{effortLabel(value)}</option>)}
       </select>
       <span className="mt-1 block text-submeta text-ink-3">{unsupported ? t("settings-modelconfiguration.api_effort_unsupported")
-        : reportedEfforts?.length ? t("settings-modelconfiguration.api_effort_hint") : t("settings-modelconfiguration.api_effort_unknown")}</span>
+        : unavailable ? t("settings-modelconfiguration.api_effort_unavailable")
+        : reported?.length ? t("settings-modelconfiguration.api_effort_hint") : t("settings-modelconfiguration.api_effort_unknown")}</span>
     </label>}
     <div className="flex flex-col items-start gap-2">
       <div className="flex flex-wrap items-center gap-2">
-        <Button tone="secondary" busy={testing} disabled={disabled || !name || unresolvedInheritance} onClick={() => void test()}>{t("settings-modelconfiguration.api_test")}</Button>
+        <Button tone="secondary" busy={testing} disabled={disabled || listing || !name || unresolvedInheritance} onClick={() => void test()}>{t("settings-modelconfiguration.api_test")}</Button>
         {testing && <p role="status" className="text-label text-ink-3">{t("settings-modelconfiguration.api_test_running")}</p>}
       {!testing && !verified && !failure && <p role="status" className="text-label text-ink-3">{t("settings-modelconfiguration.api_test_unverified")}</p>}
         {verified && <p role="status" className="text-label text-accent-ink">{t("settings-modelconfiguration.api_test_ok", { ms: verified.ms })}</p>}

@@ -31,6 +31,7 @@ const models = [
   { id: "raw-b", name: "raw-b", efforts: [] },
   { id: "raw-none", name: "raw-none", efforts: [], no_effort: true },
   { id: "raw-off", name: "raw-off", efforts: ["off", "low", "high"] },
+  { id: "raw-minimal", name: "raw-minimal", efforts: ["low"], all_efforts: ["minimal"] },
   { id: "raw-direct", name: "raw-direct", efforts: ["low", "high", "max"], all_efforts: ["minimal", "none", "low", "high", "ultra"] },
 ];
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -235,26 +236,107 @@ describe("DirectAPIEditor", () => {
     expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "off", "low", "high"]);
   });
 
-  it("preserves a current none value with the Off label", async () => {
+  it("preserves a current none value with one Off option", async () => {
     currentProvider = { ...provider, api: "chat" };
     draft = { ...draft, model: "raw-direct", effort: "none" };
     await render();
-    const current = effortSelect().selectedOptions[0];
-    expect(current.value).toBe("none");
-    expect(current.textContent).toBe(t("settings-modelconfiguration.model_current", {
+    const options = [...effortSelect().options];
+    expect(options.map((option) => option.value)).toEqual(["", "none", "low", "high"]);
+    expect(effortSelect().selectedOptions[0].textContent).toBe(t("settings-modelconfiguration.model_current", {
       id: t("settings-modelconfiguration.api_effort_off"),
     }));
   });
 
-  it("does not misreport a no_effort Chat model's deliberate default suppression", async () => {
+  it("explains when exact reported levels cannot be saved for this purpose", async () => {
     currentProvider = { ...provider, api: "chat" };
-    draft = { ...draft, model: "raw-none", effort: "" };
+    draft = { ...draft, model: "raw-minimal", effort: "" };
+    await render();
+    expect([...effortSelect().options].map((option) => option.value)).toEqual([""]);
+    expect(effortSelect().disabled).toBe(true);
+    expect(host.textContent).toContain(t("settings-modelconfiguration.api_effort_unavailable"));
+    expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_effort_unknown"));
+
+    await changeDraft({ effort: "legacy-level" });
+    expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "legacy-level"]);
+    expect(effortSelect().disabled).toBe(false);
+  });
+
+  it.each(["", "off", "none"])("accepts the hub's no_effort suppression for draft effort %s", async (value) => {
+    currentProvider = { ...provider, api: "chat" };
+    draft = { ...draft, model: "raw-none", effort: value };
+    jsonFetch((call) => call.path.endsWith("/launchers/discover")
+      ? response({ models })
+      : response({ ok: true, ms: 12, effort: "" }));
     await render();
     await testProbe();
     await flush();
-    expect(calls.at(-1)!.body).toEqual({ name: "gateway", model: "raw-none", effort: "" });
+    expect(calls.at(-1)!.body).toEqual({ name: "gateway", model: "raw-none", effort: value || "off" });
     expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_ok", { ms: 12 }));
     expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_test_effort"));
+  });
+
+  it("rejects a different nonempty effort for a no_effort Chat model", async () => {
+    currentProvider = { ...provider, api: "chat" };
+    draft = { ...draft, model: "raw-none", effort: "low" };
+    jsonFetch((call) => call.path.endsWith("/launchers/discover")
+      ? response({ models })
+      : response({ ok: true, ms: 12, effort: "high" }));
+    await render();
+    await testProbe();
+    await flush();
+    expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_effort"));
+    expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_test_ok", { ms: 12 }));
+  });
+
+  it("waits for model discovery before testing effort", async () => {
+    const discovered = deferred<Response>();
+    currentProvider = { ...provider, api: "chat" };
+    draft = { ...draft, model: "raw-none", effort: "low" };
+    jsonFetch((call) => call.path.endsWith("/launchers/discover")
+      ? discovered.promise
+      : response({ ok: true, ms: 12, effort: "" }));
+    await render();
+    expect(testButton().disabled).toBe(true);
+    await testProbe();
+    expect(calls.filter((call) => call.path.endsWith("/launchers/test"))).toHaveLength(0);
+
+    await act(async () => discovered.resolve(response({ models })));
+    await flush();
+    expect(testButton().disabled).toBe(false);
+    await testProbe();
+    await flush();
+    expect(calls.at(-1)!.body).toEqual({ name: "gateway", model: "raw-none", effort: "low" });
+    expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_ok", { ms: 12 }));
+  });
+
+  it("retires a probe when discovery changes no_effort", async () => {
+    const pending = deferred<Response>();
+    const refreshed = deferred<Response>();
+    let discoveries = 0;
+    currentProvider = { ...provider, api: "chat" };
+    draft = { ...draft, model: "raw-none", effort: "low" };
+    jsonFetch((call) => {
+      if (call.path.endsWith("/launchers/discover")) {
+        return ++discoveries === 1 ? response({ error: "retry", models: [] }) : refreshed.promise;
+      }
+      return pending.promise;
+    });
+    await render();
+    const connection = () => [...host.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === t("settings-modelconfiguration.api_test"))!;
+    await act(async () => connection().click());
+    const old = calls.find((call) => call.path.endsWith("/launchers/test"))!;
+    const retry = [...host.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === t("settings-modelconfiguration.retry"))!;
+    await act(async () => retry.click());
+    await act(async () => refreshed.resolve(response({ models })));
+    await flush();
+    expect(old.init?.signal?.aborted).toBe(true);
+    expect(testButton().getAttribute("aria-busy")).not.toBe("true");
+
+    await act(async () => pending.resolve(response({ ok: true, ms: 99, effort: "low" })));
+    await flush();
+    expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_test_ok", { ms: 99 }));
   });
 
   it.each(["responses", "chat"] as const)("offers testable %s protocol efforts when discovery has no model-specific metadata", async (api) => {
@@ -389,13 +471,11 @@ describe("DirectAPIEditor", () => {
     expect(selects()[0].textContent).not.toContain("Stale");
   });
 
-  it("ignores probe and discovery responses after unmount and reopen", async () => {
+  it("ignores probe responses after unmount and reopen", async () => {
     const oldProbe = deferred<Response>();
-    const oldList = deferred<Response>();
     let probes = 0;
-    let lists = 0;
     jsonFetch((call) => call.path.endsWith("/launchers/discover")
-      ? (++lists === 1 ? oldList.promise : response({ models }))
+      ? response({ models })
       : (++probes === 1 ? oldProbe.promise : response({ ok: true, ms: 3, effort: "low" })));
 
     await render();
@@ -404,15 +484,11 @@ describe("DirectAPIEditor", () => {
     await render();
     await testProbe();
     await flush();
-    await act(async () => {
-      oldProbe.resolve(response({ ok: true, ms: 99, effort: "low" }));
-      oldList.resolve(response({ models: [{ id: "stale" }] }));
-    });
+    await act(async () => oldProbe.resolve(response({ ok: true, ms: 99, effort: "low" })));
     await flush();
 
     expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_ok", { ms: 3 }));
     expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_test_ok", { ms: 99 }));
-    expect(selects()[0].textContent).not.toContain("stale");
   });
 
   it.each(["en", "zh-Hans", "ja"] as const)("localizes auth, model, timeout and other errors in %s", async (language) => {

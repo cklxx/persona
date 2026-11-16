@@ -1169,9 +1169,11 @@ and **Meeting minutes** in Background processing · Direct API, right after Info
   that omits both for Chat, Meeting minutes offer choices again once a Messages or Responses connection is picked, and
   Save sends them. If an older hub supplies `effort` for Messages or Responses but no Chat provider mark, switching to
   Chat hides the field and Save omits it. The direct editor uses the selected model's `all_efforts` when present, else
-  `efforts`, limited to levels a direct-purpose Save accepts; `none` appears as **Off**. Chat treats absent metadata and
-  an empty effort list as unknown and uses the direct-purpose options (`off`, `low`, `medium`, `high`, `xhigh`, `max`);
-  only `no_effort: true` marks the model unsupported.
+  `efforts`, limited to levels a direct-purpose Save accepts; `none` and `off` appear as **Off**, without duplicating a
+  current `none` value. If none of the exact reported levels can be saved, only the default remains and the editor says
+  those levels are unavailable; it does not substitute projected levels that Chat's exact runtime list would reject.
+  Chat treats absent metadata and an empty effort list as unknown and uses the direct-purpose options (`off`, `low`,
+  `medium`, `high`, `xhigh`, `max`); only `no_effort: true` marks the model unsupported.
   The launcher's model list is inert while a save is on its way, and the page shows only its latest catalog request's
   answer, so an older one still on its way never puts back what a save's reload replaced.
 - **Unchanged in look**: the background supervisor (its **Follows Main chat** comes from the hub's `inherited_from`, its
