@@ -12,6 +12,56 @@ const inputClass = "h-9 w-full rounded-control bg-field px-3 text-meta text-ink 
 type ProbeResult = TestResult & { effort?: string };
 type Failure = { kind: "auth" | "model" | "timeout" | "other" | "effort"; detail?: string };
 
+export function directEffortState(provider: ModelProvider, discovered: ProviderModel[], model: string) {
+  const chat = provider.api === "chat";
+  const alias = model.trim().toLowerCase().replace(/\[1m\]$/, "");
+  const capabilityModel = chat ? provider.model_aliases?.[alias] ?? model : model;
+  const selected = discovered.find((item) => item.id === capabilityModel);
+  const stored = provider.models?.find((item) => item.id === capabilityModel);
+  // Chat requests and named probes apply stored capabilities. Discovery is the fallback when no entry is stored.
+  const capability = chat ? stored ?? selected : selected;
+  const exact = chat && !!capability?.all_efforts?.length;
+  const reported = exact ? capability?.all_efforts : capability?.efforts;
+  // Purpose Save accepts proto.EffortLevels plus off/none. Chat's all_efforts is its exact runtime capability list.
+  const reportedEfforts = chat && reported ? [...new Set(reported.flatMap((value) =>
+    value === "none" || value === "off" ? ["off"] : EFFORT_LEVELS.includes(value) ? [value] : []))] : reported;
+  // Chat reports an empty list as unknown; only no_effort explicitly rules the control out.
+  const unsupported = chat ? capability?.no_effort === true : selected?.efforts?.length === 0;
+  const unavailable = chat && !unsupported && !!reported?.length && !reportedEfforts?.length;
+  // Efforts-only Chat metadata keeps Off as a separate runtime control.
+  const reportedOptions = chat && reported?.length && !exact && !reportedEfforts?.includes("off")
+    ? ["off", ...(reportedEfforts ?? [])] : reportedEfforts;
+  const fallback = provider.api === "responses"
+    ? ["off", "minimal", ...EFFORT_LEVELS, "ultra"]
+    : ["off", ...EFFORT_LEVELS];
+  return {
+    efforts: unsupported || unavailable ? [] : reported?.length ? reportedOptions ?? [] : fallback,
+    unsupported, unavailable, reported: !!reported?.length,
+    noEffort: chat && capability?.no_effort === true,
+  };
+}
+
+export function DirectEffortSelect({ state, value, inherited, disabled, onChange }: {
+  state: ReturnType<typeof directEffortState>;
+  value: string;
+  inherited?: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const effortLabel = (effort: string) => effort === "off" || effort === "none" ? t("settings-modelconfiguration.api_effort_off") : effortTitle(effort);
+  return <label className="block">
+    <span className="mb-1 block text-label font-medium text-ink-2">{t("settings-modelconfiguration.effort")}</span>
+    <select className={inputClass} value={value} disabled={disabled || (state.unsupported || state.unavailable) && !value} onChange={(event) => onChange(event.target.value)}>
+      <option value="">{inherited ? t("settings-modelconfiguration.api_effort_inherit", { effort: effortLabel(inherited) }) : t("settings-modelconfiguration.follow_default")}</option>
+      {value && !state.efforts.includes(value) && <option value={value}>{t("settings-modelconfiguration.model_current", { id: effortLabel(value) })}</option>}
+      {state.efforts.filter((effort) => value !== "none" || effort !== "off").map((effort) => <option key={effort} value={effort}>{effortLabel(effort)}</option>)}
+    </select>
+    <span className="mt-1 block text-submeta text-ink-3">{state.unsupported ? t("settings-modelconfiguration.api_effort_unsupported")
+      : state.unavailable ? t("settings-modelconfiguration.api_effort_unavailable")
+      : state.reported ? t("settings-modelconfiguration.api_effort_hint") : t("settings-modelconfiguration.api_effort_unknown")}</span>
+  </label>;
+}
+
 function probeFailure(detail: string, code?: string, status?: number): Failure {
   if (code === "auth" || code === "authentication" || code === "invalid_api_key") return { kind: "auth", detail };
   if (code === "not_found" || code === "model_not_found" || code === "model_not_found_error") return { kind: "model", detail };
@@ -53,27 +103,8 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
   const model = draft.model.trim() || inheritedModel || provider.model || "";
   const inheritedEffort = sameProvider && !purpose.override.effort ? purpose.effective.effort : undefined;
   const effort = draft.effort.trim() || inheritedEffort || (purpose.id === "inbox.triage" ? "off" : "");
-  const selected = models.find((item) => item.id === model);
-  const stored = provider.models?.find((item) => item.id === model);
   const chat = provider.api === "chat";
-  // Chat requests and named probes apply stored capabilities. Discovery is the fallback when no entry is stored.
-  const capability = chat ? stored ?? selected : selected;
-  const exact = chat && !!capability?.all_efforts?.length;
-  const reported = exact ? capability?.all_efforts : capability?.efforts;
-  // Purpose Save accepts proto.EffortLevels plus off/none. Chat's all_efforts is its exact runtime capability list.
-  const reportedEfforts = chat && reported ? [...new Set(reported.flatMap((value) =>
-    value === "none" || value === "off" ? ["off"] : EFFORT_LEVELS.includes(value) ? [value] : []))] : reported;
-  // Chat reports an empty list as unknown; only no_effort explicitly rules the control out.
-  const unsupported = chat ? capability?.no_effort === true : selected?.efforts?.length === 0;
-  const unavailable = chat && !unsupported && !!reported?.length && !reportedEfforts?.length;
-  // Efforts-only Chat metadata keeps Off as a separate runtime control.
-  const reportedOptions = chat && reported?.length && !exact && !reportedEfforts?.includes("off")
-    ? ["off", ...(reportedEfforts ?? [])] : reportedEfforts;
-  const fallback = provider.api === "responses"
-    ? ["off", "minimal", ...EFFORT_LEVELS, "ultra"]
-    : ["off", ...EFFORT_LEVELS];
-  const efforts = unsupported || unavailable ? [] : reported?.length ? reportedOptions ?? [] : fallback;
-  const effortLabel = (value: string) => value === "off" || value === "none" ? t("settings-modelconfiguration.api_effort_off") : effortTitle(value);
+  const capabilities = directEffortState(provider, models, model);
 
   const retire = () => {
     probe.current?.abort();
@@ -86,7 +117,7 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
     setVerified(null);
     setFailure(null);
     return retire;
-  }, [manager, purpose.id, purpose.revision, provider.id, provider.api, draft.provider, draft.model, draft.effort, model, effort, selected?.no_effort, stored?.no_effort, unresolvedInheritance]);
+  }, [manager, purpose.id, purpose.revision, provider.id, provider.api, draft.provider, draft.model, draft.effort, model, effort, capabilities.noEffort, unresolvedInheritance]);
   useLayoutEffect(() => () => discovery.current?.abort(), [manager, provider.id, provider.api, draft.provider]);
 
   useEffect(() => {
@@ -119,7 +150,7 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
     onChange(patch);
   };
   const test = async () => {
-    if (disabled || listing || !name || unresolvedInheritance || probe.current) return;
+    if (disabled || (chat && listing) || !name || unresolvedInheritance || probe.current) return;
     const controller = new AbortController();
     probe.current = controller;
     const current = () => probe.current === controller && !controller.signal.aborted;
@@ -134,9 +165,10 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
       });
       if (!current()) return;
       if (!result.ok) setFailure(probeFailure(result.error ?? "", result.code));
-      // The hub applies its stored no_effort capability to probes and real calls alike.
+      // The hub applies its effective stored no_effort capability to probes and real calls alike. Older hubs omit
+      // providers[].models, so discovery is the fallback only when no stored entry reached this client.
       else if (requestedEffort && result.effort !== requestedEffort
-        && !(chat && stored?.no_effort === true && result.effort === "")) setFailure({ kind: "effort" });
+        && !(chat && capabilities.noEffort && result.effort === "")) setFailure({ kind: "effort" });
       else setVerified(result);
     } catch (error) {
       if (!current()) return;
@@ -169,20 +201,10 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
         <button type="button" disabled={disabled || listing} onClick={() => setReload((value) => value + 1)} className="shrink-0 whitespace-nowrap font-medium text-accent-ink hover:underline">{t("settings-modelconfiguration.retry")}</button>
       </div>}
     </div>}
-    {effortAllowed && <label className="block">
-      <span className="mb-1 block text-label font-medium text-ink-2">{t("settings-modelconfiguration.effort")}</span>
-      <select className={inputClass} value={draft.effort} disabled={disabled || (unsupported || unavailable) && !draft.effort} onChange={(event) => change({ effort: event.target.value })}>
-        <option value="">{inheritedEffort ? t("settings-modelconfiguration.api_effort_inherit", { effort: effortLabel(inheritedEffort) }) : t("settings-modelconfiguration.follow_default")}</option>
-        {draft.effort && !efforts?.includes(draft.effort) && <option value={draft.effort}>{t("settings-modelconfiguration.model_current", { id: effortLabel(draft.effort) })}</option>}
-        {efforts.filter((value) => draft.effort !== "none" || value !== "off").map((value) => <option key={value} value={value}>{effortLabel(value)}</option>)}
-      </select>
-      <span className="mt-1 block text-submeta text-ink-3">{unsupported ? t("settings-modelconfiguration.api_effort_unsupported")
-        : unavailable ? t("settings-modelconfiguration.api_effort_unavailable")
-        : reported?.length ? t("settings-modelconfiguration.api_effort_hint") : t("settings-modelconfiguration.api_effort_unknown")}</span>
-    </label>}
+    {effortAllowed && <DirectEffortSelect state={capabilities} value={draft.effort} inherited={inheritedEffort} disabled={disabled} onChange={(value) => change({ effort: value })} />}
     <div className="flex flex-col items-start gap-2">
       <div className="flex flex-wrap items-center gap-2">
-        <Button tone="secondary" busy={testing} disabled={disabled || listing || !name || unresolvedInheritance} onClick={() => void test()}>{t("settings-modelconfiguration.api_test")}</Button>
+        <Button tone="secondary" busy={testing} disabled={disabled || (chat && listing) || !name || unresolvedInheritance} onClick={() => void test()}>{t("settings-modelconfiguration.api_test")}</Button>
         {testing && <p role="status" className="text-label text-ink-3">{t("settings-modelconfiguration.api_test_running")}</p>}
       {!testing && !verified && !failure && <p role="status" className="text-label text-ink-3">{t("settings-modelconfiguration.api_test_unverified")}</p>}
         {verified && <p role="status" className="text-label text-accent-ink">{t("settings-modelconfiguration.api_test_ok", { ms: verified.ms })}</p>}

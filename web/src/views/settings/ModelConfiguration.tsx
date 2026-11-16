@@ -23,7 +23,7 @@ import { ModelPicker, type ModelList } from "../../ui/ModelPicker";
 import { Group, Pill, Row } from "./SettingsParts";
 import { MANAGER_HEADER } from "../../lib/manager-choice";
 import { ConfigurationManager } from "./ConfigurationManager";
-import { DirectAPIEditor } from "./DirectAPIEditor";
+import { DirectAPIEditor, DirectEffortSelect, directEffortState } from "./DirectAPIEditor";
 import { ModelProfiles } from "./ModelProfiles";
 
 const UNVERIFIED_STATUS = "未验证"; // i18n-ignore: stable wire sentinel, not user-facing text.
@@ -260,6 +260,12 @@ function PurposeEditor({ manager, id, sourceName, catalog, onClose, onSaved }: {
   // override, the category's); with a provider picked here it is that provider's default (the list's "Default").
   const inheritedModel = draft.provider ? undefined : following ? parent?.effective?.model : !p?.override?.model ? p?.effective?.model : undefined;
   const inherited: ModelBinding = inheritedModel ? { model: inheritedModel } : {};
+  const effortModel = draft.model.trim() || inheritedModel || chosen?.model || p?.effective?.model || "";
+  const inheritedEffort = !draft.provider && !p?.override.effort
+    ? following ? parent?.effective?.effort : p?.effective?.effort
+    : undefined;
+  const chatEffort = !directAPI && chosen?.kind === "api" && chosen.api === "chat"
+    ? directEffortState(chosen, [], effortModel) : undefined;
   const listedEfforts = launcherList.status === "ready" && launcherList.list && takesEffort(launcherList.list.agent)
     ? effortChoices(launcherList.list, draft.model, inherited) : (p?.id === "inbox.triage" || p?.kind === "api" ? ["off", "low", "medium", "high", "xhigh", "max"] : ["low", "medium", "high", "xhigh", "max"]);
   const effectiveAgent = providerAgent(effectiveProvider, p?.effective?.provider);
@@ -387,12 +393,13 @@ function PurposeEditor({ manager, id, sourceName, catalog, onClose, onSaved }: {
             </span>
           )}
         </div>}
-        {!directAPI && effortAllowed && <label className="block">
+        {!directAPI && effortAllowed && (chatEffort ? <DirectEffortSelect state={chatEffort} value={draft.effort} inherited={inheritedEffort} disabled={busy}
+          onChange={(effort) => setDraft((d) => ({ ...d, effort }))} /> : <label className="block">
           <span className="mb-1 block text-[12px] font-medium text-ink-2">{t("settings-modelconfiguration.effort")}</span>
           <input className={inputClass} value={draft.effort} disabled={busy} placeholder={(following && !draft.provider ? parent?.effective?.effort : p.effective?.effort) || t("settings-modelconfiguration.follow_default")} list="model-efforts"
             onChange={(e) => setDraft((d) => ({ ...d, effort: e.target.value }))} />
           <datalist id="model-efforts">{listedEfforts.map((v) => <option key={v} value={v} />)}</datalist>
-        </label>}
+        </label>)}
         {runtimes.length > 0 && <div className="block">
           <span className="mb-1 block text-[12px] font-medium text-ink-2">{t("settings-modelconfiguration.runtime")}</span>
           <Segmented label={t("settings-modelconfiguration.runtime")} value={chosenAgent === "claude" ? draft.runtime : "cli"} options={runtimes.map((r) => ({ v: r.id, label: r.label }))}

@@ -266,6 +266,42 @@ func TestChatEffortUsesDeclaredModelCapabilities(t *testing.T) {
 	}
 }
 
+func TestChatProbeResolvesLegacyTierAliasCapabilities(t *testing.T) {
+	s, _ := launcherTestService(t)
+	var body map[string]any
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body = nil
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"pong\"},\"finish_reason\":\"stop\"}]}\n\n"))
+	}))
+	defer gateway.Close()
+	putLaunchers(t, s, storedLauncher{ManagedLauncher: proto.ManagedLauncher{
+		Name: "old", Kind: "api", API: "chat", BaseURL: gateway.URL, Model: "sonnet", SonnetModel: "limited",
+		Models: []proto.ProviderModel{{ID: "limited", Efforts: []string{"low"}, AllEfforts: []string{"none", "low"}}},
+	}})
+	for _, tc := range []struct{ effort, resolved, wire string }{
+		{effort: "high"},
+		{effort: "low", resolved: "low", wire: "low"},
+	} {
+		t.Run(tc.effort, func(t *testing.T) {
+			config, err := s.apiConfig(context.Background(), ModelBinding{Provider: "launcher.old", Model: "Sonnet[1m]", Effort: tc.effort})
+			if err != nil || config.Model != "limited" || config.ReasoningEffort != tc.resolved {
+				t.Fatalf("runtime = %+v, %v; want model limited and effort %q", config, err, tc.resolved)
+			}
+			effort := tc.effort
+			out := s.providerTest(context.Background(), probeInput{Name: "old", Model: "Sonnet[1m]", Effort: &effort})
+			if out["ok"] != true || out["model"] != "limited" || out["effort"] != tc.resolved && (tc.resolved != "" || out["effort"] != nil) {
+				t.Fatalf("probe = %v, want model limited and effort %q", out, tc.resolved)
+			}
+			if body["model"] != "limited" || body["reasoning_effort"] != tc.wire && (tc.wire != "" || body["reasoning_effort"] != nil) {
+				t.Fatalf("wire request = %v, want model limited and effort %q", body, tc.wire)
+			}
+		})
+	}
+}
+
 func TestChatDefaultTriageOffValueFallbackAndCache(t *testing.T) {
 	var requests []map[string]any
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

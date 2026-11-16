@@ -226,6 +226,18 @@ func TestChatModelProviderIncludesStoredCapabilities(t *testing.T) {
 	}
 }
 
+func TestChatModelProviderIncludesTierAliases(t *testing.T) {
+	s, _ := launcherTestService(t)
+	putLaunchers(t, s, storedLauncher{ManagedLauncher: proto.ManagedLauncher{
+		Name: "old", Kind: "api", API: "chat", BaseURL: "https://api.example.com", Model: "sonnet", SonnetModel: "gw/sonnet",
+	}})
+	providers := s.modelProviders(context.Background())
+	i := slices.IndexFunc(providers, func(p ModelProvider) bool { return p.ID == "launcher.old" })
+	if i < 0 || providers[i].ModelAliases["sonnet"] != "gw/sonnet" {
+		t.Fatalf("Chat tier alias missing from model configuration: %+v", providers)
+	}
+}
+
 func TestChatProbeRejectsUnsupportedTransport(t *testing.T) {
 	for _, operation := range []string{"test", "discover"} {
 		for _, tc := range []struct {

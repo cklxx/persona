@@ -24,6 +24,8 @@ export interface ModelProvider {
   chat_effort?: boolean;
   model?: string;
   models?: ProviderModel[];
+  /** Legacy Chat tier aliases resolved to the stored model IDs whose capabilities apply. */
+  model_aliases?: Record<string, string>;
   machines?: string[];
   hidden?: boolean;
   has_key?: boolean;

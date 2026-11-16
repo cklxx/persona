@@ -243,6 +243,25 @@ describe("DirectAPIEditor", () => {
     expect(host.textContent).toContain(t("settings-modelconfiguration.api_effort_hint"));
   });
 
+  it("resolves legacy Chat tier aliases before reading model capabilities", async () => {
+    const aliased = [{ id: "gw/sonnet", efforts: ["low"], all_efforts: ["none", "low"] }];
+    currentProvider = { ...provider, api: "chat", models: aliased, model_aliases: { sonnet: "gw/sonnet" } };
+    draft = { ...draft, model: "Sonnet[1m]", effort: "" };
+    jsonFetch((call) => call.path.endsWith("/launchers/discover")
+      ? response({ models: aliased })
+      : response({ ok: true, ms: 12, effort: call.body.effort }));
+    await render();
+    expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "off", "low"]);
+    expect(effortSelect().disabled).toBe(false);
+    await act(async () => {
+      effortSelect().value = "low";
+      effortSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await testProbe();
+    await flush();
+    expect(calls.at(-1)!.body).toEqual({ name: "gateway", model: "Sonnet[1m]", effort: "low" });
+  });
+
   it("keeps Off available for Chat efforts-only metadata", async () => {
     currentProvider = { ...provider, api: "chat", models };
     draft = { ...draft, model: "raw-efforts-only", effort: "" };
@@ -305,6 +324,19 @@ describe("DirectAPIEditor", () => {
     expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_test_effort"));
   });
 
+  it("uses discovered no_effort for an older hub that omits stored capabilities", async () => {
+    currentProvider = { ...provider, api: "chat", models: undefined };
+    draft = { ...draft, model: "raw-none", effort: "low" };
+    jsonFetch((call) => call.path.endsWith("/launchers/discover")
+      ? response({ models })
+      : response({ ok: true, ms: 12, effort: "" }));
+    await render();
+    await testProbe();
+    await flush();
+    expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_ok", { ms: 12 }));
+    expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_test_effort"));
+  });
+
   it("rejects an empty echo when fresh discovery reports no_effort but the stored model does not", async () => {
     currentProvider = {
       ...provider,
@@ -356,11 +388,26 @@ describe("DirectAPIEditor", () => {
     expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_ok", { ms: 12 }));
   });
 
-  it("retires a probe when discovery changes no_effort", async () => {
+  it.each(["responses", "messages"] as const)("does not block a %s probe on model discovery", async (api) => {
+    const discovered = deferred<Response>();
+    currentProvider = { ...provider, api, models };
+    jsonFetch((call) => call.path.endsWith("/launchers/discover")
+      ? discovered.promise
+      : response({ ok: true, ms: 12, effort: call.body.effort }));
+    await render();
+    expect(testButton().disabled).toBe(false);
+    await testProbe();
+    await flush();
+    expect(calls.filter((call) => call.path.endsWith("/launchers/test"))).toHaveLength(1);
+    expect(calls.at(-1)!.body).toEqual({ name: "gateway", model: "raw-a", effort: "low" });
+    expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_ok", { ms: 12 }));
+  });
+
+  it("retires a probe when the effective no_effort capability changes", async () => {
     const pending = deferred<Response>();
     const refreshed = deferred<Response>();
     let discoveries = 0;
-    currentProvider = { ...provider, api: "chat", models };
+    currentProvider = { ...provider, api: "chat", models: undefined };
     draft = { ...draft, model: "raw-none", effort: "low" };
     jsonFetch((call) => {
       if (call.path.endsWith("/launchers/discover")) {
@@ -384,6 +431,36 @@ describe("DirectAPIEditor", () => {
     await act(async () => pending.resolve(response({ ok: true, ms: 99, effort: "low" })));
     await flush();
     expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_test_ok", { ms: 99 }));
+  });
+
+  it("keeps a probe when only redundant discovery no_effort metadata changes", async () => {
+    const pending = deferred<Response>();
+    const refreshed = deferred<Response>();
+    let discoveries = 0;
+    currentProvider = { ...provider, api: "chat", models };
+    draft = { ...draft, model: "raw-none", effort: "low" };
+    jsonFetch((call) => {
+      if (call.path.endsWith("/launchers/discover")) {
+        return ++discoveries === 1 ? response({ error: "retry", models: [] }) : refreshed.promise;
+      }
+      return pending.promise;
+    });
+    await render();
+    const connection = () => [...host.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === t("settings-modelconfiguration.api_test"))!;
+    await act(async () => connection().click());
+    const old = calls.find((call) => call.path.endsWith("/launchers/test"))!;
+    const retry = [...host.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === t("settings-modelconfiguration.retry"))!;
+    await act(async () => retry.click());
+    await act(async () => refreshed.resolve(response({ models })));
+    await flush();
+    expect(old.init?.signal?.aborted).toBe(false);
+    expect(connection().getAttribute("aria-busy")).toBe("true");
+
+    await act(async () => pending.resolve(response({ ok: true, ms: 99, effort: "" })));
+    await flush();
+    expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_ok", { ms: 99 }));
   });
 
   it.each(["responses", "chat"] as const)("offers testable %s protocol efforts when discovery has no model-specific metadata", async (api) => {

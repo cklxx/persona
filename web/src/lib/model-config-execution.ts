@@ -208,10 +208,11 @@ function takesEffortProvider(v?: ModelProvider): boolean {
  *  On an older hub that omits effort for Chat, picking Messages or Responses offers it again (#7980). */
 export function effortOffered(p: ModelPurpose, chosen: ModelProvider | undefined, effective: ModelProvider | undefined, followsAgents = false): boolean {
   const explicit = supportsField(p, "effort");
-  const field = explicit
-    || (p.kind === "api" && !!p.fields?.includes("provider") && !!effective && !takesEffortProvider(effective));
-  const chat = explicit && chosen?.kind === "api" && chosen.api === "chat"
-    && (chosen.chat_effort === true || effective?.id === chosen.id);
+  const markedChat = chosen?.kind === "api" && chosen.api === "chat" && chosen.chat_effort === true;
+  const field = explicit || (p.kind === "api" && !!p.fields?.includes("provider")
+    && (markedChat || (!!effective && !takesEffortProvider(effective))));
+  const chat = chosen?.kind === "api" && chosen.api === "chat"
+    && (chosen.chat_effort === true || (explicit && effective?.id === chosen.id));
   return field && (followsAgents || chat || takesEffortProvider(chosen));
 }
 

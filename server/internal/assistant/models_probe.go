@@ -85,6 +85,7 @@ type probeTarget struct {
 
 func (s *Service) probeTarget(ctx context.Context, in probeInput) (probeTarget, error) {
 	var t probeTarget
+	var chatAlias *storedLauncher
 	switch in.Auth {
 	case probeAuthBoth, probeAuthAPIKey, probeAuthBearer, probeAuthAuto:
 	default:
@@ -111,6 +112,9 @@ func (s *Service) probeTarget(ctx context.Context, in probeInput) (probeTarget, 
 		}
 		t = probeTarget{base: l.BaseURL, key: key, headers: headers, model: l.Model, effort: l.Effort, proxy: l.Proxy, noProxy: l.NoProxy, api: l.API, kind: l.Kind, via: l.ViaMachine,
 			models: l.Models, agent: l.AgentType()}
+		if l.Kind == "api" && l.API == "chat" {
+			chatAlias = &l
+		}
 		if t.kind == "" {
 			t.kind = "launcher" // Stored entries without kind are legacy launchers.
 		}
@@ -206,6 +210,13 @@ func (s *Service) probeTarget(ctx context.Context, in probeInput) (probeTarget, 
 	t.base = strings.TrimRight(strings.TrimSpace(t.base), "/")
 	if t.via != "" {
 		t.through = viaNode{s: s, machine: t.via}
+	}
+	if chatAlias != nil && t.api == "chat" {
+		model, err := resolveAPITierAlias(*chatAlias, t.model)
+		if err != nil {
+			return t, err
+		}
+		t.model = model
 	}
 	if t.api == "chat" {
 		t.effort = chatEffortForModel(t.models, t.model, t.effort)

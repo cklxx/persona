@@ -135,6 +135,8 @@ const row = (id: string) => host.querySelector<HTMLElement>(`[data-model-purpose
 const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]')!;
 const button = (label: string, scope: ParentNode = document) => [...scope.querySelectorAll("button")].find((b) => b.textContent === label);
 const effort = () => dialog().querySelector<HTMLInputElement>('input[list="model-efforts"]');
+const effortSelect = () => [...dialog().querySelectorAll<HTMLSelectElement>("select")]
+  .find((node) => node.closest("label")?.querySelector("span")?.textContent === t("settings-modelconfiguration.effort"));
 const modelField = () => dialog().querySelector<HTMLInputElement>(`input[aria-label="${t("settings-modelconfiguration.specific_model")}"]`);
 /** The launcher list's picker (its trigger), and one of its rows. */
 const picker = () => dialog().querySelector<HTMLButtonElement>("button[aria-expanded]");
@@ -180,6 +182,8 @@ beforeEach(async () => {
   patchGate = undefined;
   patches = [];
   providers[3].chat_effort = true;
+  providers[3].models = undefined;
+  providers[3].model_aliases = undefined;
   stored = {};
   follows("meeting.room", MAIN);
   follows("meeting.minutes", KB);
@@ -266,9 +270,36 @@ describe("the meeting uses' models (#7980)", () => {
     expect([...dialog().querySelectorAll<HTMLOptionElement>("select option")][0].textContent).toBe("Follow Information processing");
     expect(effort()).not.toBeNull();
     await choose("api.chat");
-    expect(effort()).not.toBeNull();
+    expect(effort()).toBeNull();
+    expect(effortSelect()).not.toBeNull();
     await choose("api.messages");
     expect(effort()).not.toBeNull();
+    expect(effortSelect()).toBeUndefined();
+  });
+
+  it("uses the selected Chat model's exact capabilities and saves only a supported effort", async () => {
+    providers[3].models = [
+      { id: "chat-exact", efforts: ["low"], all_efforts: ["none", "low"] },
+      { id: "chat-none", efforts: [], no_effort: true },
+    ];
+    setApart("meeting.minutes", { provider: "api.chat", model: "chat-exact" }, 4);
+    await render();
+    await open("meeting.minutes");
+    expect([...effortSelect()!.options].map((option) => option.value)).toEqual(["", "off", "low"]);
+    expect(effortSelect()!.disabled).toBe(false);
+    type(modelField()!, "chat-none");
+    await flush();
+    expect(effortSelect()!.disabled).toBe(true);
+    expect([...effortSelect()!.options].map((option) => option.value)).toEqual([""]);
+    type(modelField()!, "chat-exact");
+    await flush();
+    await act(async () => {
+      effortSelect()!.value = "low";
+      effortSelect()!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => button("Save", dialog())!.click());
+    await flush();
+    expect(patches).toEqual([{ path: "/api/v1/model-config/purposes/meeting.minutes", body: { revision: 4, provider: "api.chat", model: "chat-exact", effort: "low" } }]);
   });
 
   it("the minutes' editor hides and omits Chat effort after a Messages switch on an older hub", async () => {
@@ -366,8 +397,9 @@ describe("the meeting uses' models (#7980)", () => {
     expect(row("meeting.room").textContent).toContain("Follows Main chat");
   });
 
-  it("the minutes on a Chat Completions connection offer effort again once the draft runs on one that takes it", async () => {
-    // the hub lists no effort while they run on a Chat Completions connection
+  it("the minutes on an older hub's Chat Completions connection offer effort again once the draft runs on one that takes it", async () => {
+    // an older hub lists no effort while they run on a Chat Completions connection
+    delete providers[3].chat_effort;
     setApart("meeting.minutes", { provider: "api.chat", model: "chat-model" }, 4, ["provider", "model"]);
     await render();
     await open("meeting.minutes");

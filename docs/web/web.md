@@ -1170,9 +1170,11 @@ and **Meeting minutes** in Background processing · Direct API, right after Info
   lists `effort` for the effective Chat provider keeps it available without that mark. Against an older hub that omits
   both for Chat, Meeting minutes offer choices again once a Messages or Responses connection is picked, and Save sends
   them. If an older hub supplies `effort` for Messages or Responses but no Chat provider mark, switching to a different
-  Chat provider hides the field and Save omits it. For Chat, the direct editor reads the selected model's stored
-  `providers[].models` capabilities, with discovery as the fallback when no entry is stored. It uses `all_efforts` when
-  present, else `efforts`, limited to levels a direct-purpose Save accepts; `none` and `off` appear as **Off**, without
+  Chat provider hides the field and Save omits it. For Chat, both the direct editor and an editor of a use with its own
+  record read the selected model's stored `providers[].models` capabilities; the direct editor uses discovery as the
+  fallback when no entry is stored. `providers[].model_aliases` resolves legacy Chat tier aliases to the stored model
+  IDs used by real requests and named probes before either editor reads capabilities. The control uses `all_efforts`
+  when present, else `efforts`, limited to levels a direct-purpose Save accepts; `none` and `off` appear as **Off**, without
   duplicating a current `none` value. Efforts-only Chat metadata keeps **Off** as a separate control. If none of the
   exact reported levels can be saved, only the default remains and the editor says those levels are unavailable; it
   does not substitute projected levels that Chat's exact runtime list would reject. Responses and Messages keep their
