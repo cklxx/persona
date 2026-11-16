@@ -238,7 +238,8 @@ function PurposeEditor({ manager, id, sourceName, catalog, onClose, onSaved }: {
   const directAPI = !!p && p.kind === "api" && !ownRecord(p) && chosen?.kind === "api" && writable;
   const effectiveProvider = data?.providers.find((v) => v.id === p?.effective?.provider);
   // by the provider the draft runs on, not only by the fields the hub sent for the one in effect
-  const effortAllowed = !!p && effortOffered(p, chosen, effectiveProvider, followsAgents);
+  const effortAllowed = !!p && effortOffered(p, chosen, effectiveProvider, followsAgents,
+    !!data?.providers.some((provider) => provider.chat_effort === true));
   const listProvider = p?.kind !== "plugin" && chosen?.kind === "launcher" && supportsField(p!, "model") ? chosen.id : "";
   useEffect(() => {
     const refresh = refreshNext.current;
@@ -258,12 +259,17 @@ function PurposeEditor({ manager, id, sourceName, catalog, onClose, onSaved }: {
   const picker = launcherList.status === "loading" || (launcherList.status === "ready" && !!launcherList.list?.models.length);
   // Left empty, the model is inherited while the provider is too (what runs now when nothing here is set; with an
   // override, the category's); with a provider picked here it is that provider's default (the list's "Default").
-  const inheritedModel = draft.provider ? undefined : following ? parent?.effective?.model : !p?.override?.model ? p?.effective?.model : undefined;
+  // An own record that names its parent's provider still inherits an empty model or effort from that parent. Another
+  // provider starts from its own default. Use the current draft, not the saved override being cleared.
+  const sameParentProvider = !draft.provider || draft.provider === parent?.effective?.provider;
+  const inheritedModel = following
+    ? sameParentProvider ? parent?.effective?.model : undefined
+    : !draft.provider && !p?.override?.model ? p?.effective?.model : undefined;
   const inherited: ModelBinding = inheritedModel ? { model: inheritedModel } : {};
   const effortModel = draft.model.trim() || inheritedModel || chosen?.model || p?.effective?.model || "";
-  const inheritedEffort = !draft.provider && !p?.override.effort
-    ? following ? parent?.effective?.effort : p?.effective?.effort
-    : undefined;
+  const inheritedEffort = following
+    ? sameParentProvider ? parent?.effective?.effort : undefined
+    : !draft.provider && !p?.override.effort ? p?.effective?.effort : undefined;
   const chatEffort = !directAPI && chosen?.kind === "api" && chosen.api === "chat"
     ? directEffortState(chosen, [], effortModel) : undefined;
   const listedEfforts = launcherList.status === "ready" && launcherList.list && takesEffort(launcherList.list.agent)

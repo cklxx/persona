@@ -18,6 +18,7 @@ vi.mock("../../lib/store", () => ({ useStore: (select: (s: { machines: []; featu
 vi.mock("../../ui/atoms", async (original) => ({ ...(await original<typeof import("../../ui/atoms")>()), toast: vi.fn() }));
 import { initI18n, t } from "../../i18n";
 import type { ModelBinding, ModelProvider, ModelPurpose } from "../../lib/model-config";
+import { effortTitle } from "../../lib/session-actions";
 import { ModelConfiguration } from "./ModelConfiguration";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -181,6 +182,9 @@ beforeEach(async () => {
   catalogGate = undefined;
   patchGate = undefined;
   patches = [];
+  providers.length = 4;
+  Object.assign(KB, { provider: "api.messages", model: "kb-model" });
+  delete KB.effort;
   providers[3].chat_effort = true;
   providers[3].models = undefined;
   providers[3].model_aliases = undefined;
@@ -272,6 +276,7 @@ describe("the meeting uses' models (#7980)", () => {
     await choose("api.chat");
     expect(effort()).toBeNull();
     expect(effortSelect()).not.toBeNull();
+    expect(dialog().textContent).not.toContain("Test connection");
     await choose("api.messages");
     expect(effort()).not.toBeNull();
     expect(effortSelect()).toBeUndefined();
@@ -300,6 +305,47 @@ describe("the meeting uses' models (#7980)", () => {
     await act(async () => button("Save", dialog())!.click());
     await flush();
     expect(patches).toEqual([{ path: "/api/v1/model-config/purposes/meeting.minutes", body: { revision: 4, provider: "api.chat", model: "chat-exact", effort: "low" } }]);
+  });
+
+  it("uses the parent model and effort when an own record keeps the same Chat provider", async () => {
+    Object.assign(KB, { provider: "api.chat", model: "parent-model", effort: "high" });
+    providers[3].models = [
+      { id: "parent-model", efforts: ["low"], all_efforts: ["none", "low"] },
+      { id: "chat-default", efforts: ["high"], all_efforts: ["none", "high"] },
+    ];
+    stored["meeting.minutes"] = {
+      override: { provider: "api.chat", effort: "low" },
+      effective: { provider: "api.chat", model: "parent-model", effort: "low" },
+      revision: 4, fields,
+    };
+    await render();
+    await open("meeting.minutes");
+    expect([...effortSelect()!.options].map((option) => option.value)).toEqual(["", "off", "low"]);
+    await act(async () => {
+      effortSelect()!.value = "";
+      effortSelect()!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(effortSelect()!.options[0].textContent).toBe(t("settings-modelconfiguration.api_effort_inherit", { effort: effortTitle("high") }));
+  });
+
+  it("keeps Chat effort when an older hub's explicit Chat binding switches to another Chat provider", async () => {
+    delete providers[3].chat_effort;
+    providers.push({ id: "api.chat-b", name: "Chat B", kind: "api", api: "chat", model: "chat-b-default", has_key: true });
+    setApart("meeting.minutes", { provider: "api.chat", model: "chat-a", effort: "low" }, 4);
+    await render();
+    await open("meeting.minutes");
+    await choose("api.chat-b");
+    expect(effortSelect()).not.toBeNull();
+  });
+
+  it("restores Messages effort from another provider's current-hub mark when the effective provider is missing", async () => {
+    stored["meeting.minutes"] = {
+      override: {}, effective: { provider: "api.missing" }, revision: 4, fields: ["provider", "model"],
+    };
+    await render();
+    await open("meeting.minutes");
+    await choose("api.messages");
+    expect(effort()).not.toBeNull();
   });
 
   it("the minutes' editor hides and omits Chat effort after a Messages switch on an older hub", async () => {

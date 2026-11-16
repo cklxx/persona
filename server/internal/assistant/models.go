@@ -47,6 +47,7 @@ type ModelProvider struct {
 	Agent        string                `json:"agent,omitempty"`
 	API          string                `json:"api,omitempty"`
 	ChatEffort   bool                  `json:"chat_effort,omitempty"`
+	Effort       string                `json:"effort,omitempty"`
 	Model        string                `json:"model,omitempty"`
 	Machines     []string              `json:"machines,omitempty"`
 	Hidden       bool                  `json:"hidden,omitempty"`
@@ -454,7 +455,7 @@ func (s *Service) modelProviders(ctx context.Context) []ModelProvider {
 				}
 			}
 		}
-		out = append(out, ModelProvider{ID: "launcher." + v.Name, Name: cmp.Or(v.DisplayName, v.Name), Kind: kind, Agent: agent, API: apiName, ChatEffort: kind == "api" && apiName == "chat", Model: v.Model, Machines: v.Machines, Hidden: v.Hidden, HasKey: v.HasKey, Models: v.Models, ModelAliases: aliases})
+		out = append(out, ModelProvider{ID: "launcher." + v.Name, Name: cmp.Or(v.DisplayName, v.Name), Kind: kind, Agent: agent, API: apiName, ChatEffort: kind == "api" && apiName == "chat", Effort: v.Effort, Model: v.Model, Machines: v.Machines, Hidden: v.Hidden, HasKey: v.HasKey, Models: v.Models, ModelAliases: aliases})
 	}
 	if !slices.ContainsFunc(out, func(p ModelProvider) bool { return p.ID == "launcher.claude" }) {
 		p := ModelProvider{ID: "launcher.claude", Name: mc(l, "provider_claude_default"), Kind: "launcher", Agent: "claude"}

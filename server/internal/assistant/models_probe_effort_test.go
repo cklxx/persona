@@ -302,6 +302,34 @@ func TestChatProbeResolvesLegacyTierAliasCapabilities(t *testing.T) {
 	}
 }
 
+func TestChatDiscoveryDoesNotResolveUnusedDefaultAlias(t *testing.T) {
+	s, _ := launcherTestService(t)
+	var modelLists int
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			modelLists++
+			_, _ = w.Write([]byte(`{"data":[{"id":"concrete"}]}`))
+		case "/v1/model-capabilities":
+			http.NotFound(w, r)
+		default:
+			t.Errorf("request = %s %s, want model discovery", r.Method, r.URL.Path)
+		}
+	}))
+	defer gateway.Close()
+	putLaunchers(t, s, storedLauncher{ManagedLauncher: proto.ManagedLauncher{
+		Name: "old", Kind: "api", API: "chat", BaseURL: gateway.URL, Model: "sonnet",
+	}})
+	out := s.providerDiscover(context.Background(), probeInput{Name: "old"})
+	if out["error"] != nil || modelLists != 1 {
+		t.Fatalf("discovery = %v, model lists = %d; want the gateway model list", out, modelLists)
+	}
+	probe := s.providerTest(context.Background(), probeInput{Name: "old"})
+	if probe["ok"] != false || probe["error"] == nil || modelLists != 1 {
+		t.Fatalf("unresolved named probe = %v, model lists = %d; want a local alias error", probe, modelLists)
+	}
+}
+
 func TestChatDefaultTriageOffValueFallbackAndCache(t *testing.T) {
 	var requests []map[string]any
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

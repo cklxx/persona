@@ -262,6 +262,17 @@ describe("DirectAPIEditor", () => {
     expect(calls.at(-1)!.body).toEqual({ name: "gateway", model: "Sonnet[1m]", effort: "low" });
   });
 
+  it("does not trust an inherited constructor property as a Chat model alias", async () => {
+    const exact = [{ id: "constructor", efforts: ["low"], all_efforts: ["none", "low"] }];
+    currentProvider = { ...provider, api: "chat", models: exact, model_aliases: { sonnet: "gw/sonnet" } };
+    draft = { ...draft, model: "constructor", effort: "" };
+    jsonFetch((call) => call.path.endsWith("/launchers/discover")
+      ? response({ models: [] })
+      : response({ ok: true, ms: 12, effort: call.body.effort }));
+    await render();
+    expect([...effortSelect().options].map((option) => option.value)).toEqual(["", "off", "low"]);
+  });
+
   it("keeps Off available for Chat efforts-only metadata", async () => {
     currentProvider = { ...provider, api: "chat", models };
     draft = { ...draft, model: "raw-efforts-only", effort: "" };
@@ -350,6 +361,25 @@ describe("DirectAPIEditor", () => {
     await render();
     await testProbe();
     await flush();
+    expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_effort"));
+    expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_test_ok", { ms: 12 }));
+  });
+
+  it("rejects a degraded empty echo when the selected Chat provider has a saved default effort", async () => {
+    currentProvider = { ...provider, api: "chat", effort: "high", models };
+    draft = { provider: provider.id, model: "raw-a", effort: "", runtime: "" };
+    const switchedPurpose = { ...purpose, id: "kb", effective: { provider: "launcher.other", model: "other", effort: "low" } };
+    jsonFetch((call) => call.path.endsWith("/launchers/discover")
+      ? response({ models })
+      : response({ ok: true, ms: 12, effort: "" }));
+    await act(async () => root.render(
+      <DirectAPIEditor manager={manager} purpose={switchedPurpose} provider={currentProvider} draft={draft}
+        disabled={false} effortAllowed onChange={() => {}} />,
+    ));
+    await flush();
+    await testProbe();
+    await flush();
+    expect(calls.at(-1)!.body).toEqual({ name: "gateway", model: "raw-a" });
     expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_effort"));
     expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_test_ok", { ms: 12 }));
   });
@@ -467,9 +497,7 @@ describe("DirectAPIEditor", () => {
     currentProvider = { ...provider, api, models };
     draft = { ...draft, model: "unlisted-model", effort: "" };
     await render();
-    const expected = api === "responses"
-      ? ["", "off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
-      : ["", "off", "low", "medium", "high", "xhigh", "max"];
+    const expected = ["", "off", "low", "medium", "high", "xhigh", "max"];
     expect([...effortSelect().options].map((option) => option.value)).toEqual(expected);
     expect(host.textContent).toContain(t("settings-modelconfiguration.api_effort_unknown"));
     await act(async () => {

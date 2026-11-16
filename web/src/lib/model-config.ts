@@ -22,6 +22,8 @@ export interface ModelProvider {
   api?: ProviderAPI;
   /** A current hub accepts purpose effort on this Chat connection; absent on older hubs. */
   chat_effort?: boolean;
+  /** The connection's saved default, inherited when a purpose effort is unset. */
+  effort?: string;
   model?: string;
   models?: ProviderModel[];
   /** Legacy Chat tier aliases resolved to the stored model IDs whose capabilities apply. */

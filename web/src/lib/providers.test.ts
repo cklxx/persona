@@ -172,6 +172,10 @@ describe("providerBody", () => {
     expect(providerBody(formFromView(old), old, true)).not.toHaveProperty("effort");
     expect(providerBody({ ...formFromView(old), effort: "max" }, old, true)).toHaveProperty("effort", "max");
   });
+  it("keeps a concrete default model when legacy Chat tier settings are cleared", () => {
+    const old: ProviderView = { name: "chat", kind: "api", api: "chat", model: "Sonnet[1m]", sonnet_model: "gw/sonnet", proxy: "http://proxy.example.com" };
+    expect(providerBody(formFromView(old), old, true)).toMatchObject({ model: "gw/sonnet", sonnet_model: "", proxy: "" });
+  });
   it("a new provider sends what is set, not the empty ones", () => {
     const b = providerBody(ready({ timeout_ms: "30000", subagent_force: true }), null);
     expect(b).toMatchObject({ name: "gw", base_url: "https://gw.example.com", model: "m1", auth: "bearer", api_key: "sk-test-1", timeout_ms: 30000, subagent_force: true });
