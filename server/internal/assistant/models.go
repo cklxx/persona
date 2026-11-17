@@ -232,14 +232,19 @@ var errModelPurposeNotFound = i18n.Err("assistant-models.err_purpose_not_found")
 
 var errModelConflict = i18n.Err("assistant-models.err_conflict")
 
-func modelKey(id string) string { return "model_config." + id }
+const (
+	modelKeyPrefix         = "model_config."
+	modelOverrideKeyPrefix = modelKeyPrefix + "overrides.v1."
+)
+
+func modelKey(id string) string { return modelKeyPrefix + id }
 
 // The AI twin, Lark /agent and a task's own use were retired with category-only settings. A fresh namespace keeps
 // dormant records (model_config.inbox.agent, model_config.lark.agent, model_config.task.<id>) inert, including their
 // revisions. Only a new user save creates such a record.
 func modelRecordKey(id string) string {
 	if agentsOverride(id) || isTaskPurpose(id) {
-		return "model_config.overrides.v1." + id
+		return modelOverrideKeyPrefix + id
 	}
 	return modelKey(id)
 }

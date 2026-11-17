@@ -414,7 +414,12 @@ func errViaMachine(id string) error {
 // saveLauncher stores in (over old on an update) and tells the nodes.
 func (s *Service) saveLauncher(ctx context.Context, in launcherInput, old *storedLauncher) (storedLauncher, error) {
 	s.models.mu.Lock()
-	defer s.models.mu.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			s.models.mu.Unlock()
+		}
+	}()
 	list, err := s.readStoredLaunchers(ctx)
 	if err != nil {
 		return storedLauncher{}, err
@@ -545,9 +550,16 @@ func (s *Service) saveLauncher(ctx context.Context, in launcherInput, old *store
 	}
 	l.APIKey, l.Headers, l.HasHeaders, l.Env, l.HasEnv = "", "", false, "", false // only ever stored sealed
 	l.Withheld, l.Rev = false, ""
-	var more map[string]any
+	var migrated migratedTierAliases
 	if old != nil && l.API == "chat" {
-		more, err = s.migrateTierAliases(ctx, *old, &l)
+		// This save can change the fallback provider. Clone so old still points at the pre-save list.
+		candidate := slices.Clone(list)
+		if i := slices.IndexFunc(candidate, func(x storedLauncher) bool { return x.Name == l.Name }); i >= 0 {
+			candidate[i] = l
+		} else {
+			candidate = append(candidate, l)
+		}
+		migrated, err = s.migrateTierAliases(withManagedSnapshot(ctx, candidate), *old, &l)
 		if err != nil {
 			return storedLauncher{}, err
 		}
@@ -557,8 +569,14 @@ func (s *Service) saveLauncher(ctx context.Context, in launcherInput, old *store
 	} else {
 		list = append(list, l)
 	}
-	if err := s.storeManagedWithKeys(ctx, list, keys, newKeys, more); err != nil {
+	if err := s.storeManagedWithKeys(ctx, list, keys, newKeys, migrated.settings); err != nil {
 		return l, err
+	}
+	if migrated.profileChanged {
+		s.models.mu.Unlock()
+		locked = false
+		s.ProfileChanged(ctx)
+		s.profileEvent(ctx, migrated.active)
 	}
 	return l, nil
 }

@@ -154,6 +154,7 @@ try {
       for (const text of ["standard", "large"]) {
         const where = `${theme} ${text === "large" ? "Large text" : "default text"}`;
         const ctx = await browser.newContext({ viewport: { width: 480, height: 900 }, deviceScaleFactor: 2, colorScheme: theme, reducedMotion: "reduce" });
+        await localizeCatalog(ctx, "en");
         const page = await ctx.newPage();
         await page.goto(`${base}/?token=mock`);
         await page.waitForFunction(() => localStorage.getItem("persona.token"), null, { timeout: 15000 });

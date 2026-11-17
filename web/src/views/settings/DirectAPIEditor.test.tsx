@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initI18n, t } from "../../i18n";
 import { MANAGER_HEADER } from "../../lib/manager-choice";
 import type { ModelDraft, ModelProvider, ModelPurpose } from "../../lib/model-config";
-import { DirectAPIEditor } from "./DirectAPIEditor";
+import { DirectAPIEditor, expectedDirectProbeEffort } from "./DirectAPIEditor";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -159,6 +159,22 @@ it("leaves Use default to the saved connection instead of explicitly clearing it
 });
 
 describe("DirectAPIEditor", () => {
+  it.each([
+    ["raw-none", "low", ""],
+    ["raw-b", "low", "low"],
+    ["raw-efforts-only", "off", "off"],
+    ["raw-efforts-only", "high", ""],
+    ["raw-direct", "off", "off"],
+    ["raw-direct", "none", "none"],
+    ["raw-direct", "disabled", "disabled"],
+    ["raw-direct", "medium", ""],
+    ["raw-a", "LOW", ""],
+    ["unlisted-model", "high", "high"],
+  ])("expects the stored Chat capability result for %s effort %s", (model, requested, expected) => {
+    currentProvider = { ...provider, api: "chat", models };
+    expect(expectedDirectProbeEffort(currentProvider, model, requested)).toBe(expected);
+  });
+
   it("discovers aliases but submits the raw model ID, requested effort and manager", async () => {
     await render();
 
@@ -335,7 +351,7 @@ describe("DirectAPIEditor", () => {
     expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_test_effort"));
   });
 
-  it("uses discovered no_effort for an older hub that omits stored capabilities", async () => {
+  it("does not use discovered no_effort to verify an older hub's empty echo", async () => {
     currentProvider = { ...provider, api: "chat", models: undefined };
     draft = { ...draft, model: "raw-none", effort: "low" };
     jsonFetch((call) => call.path.endsWith("/launchers/discover")
@@ -344,8 +360,8 @@ describe("DirectAPIEditor", () => {
     await render();
     await testProbe();
     await flush();
-    expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_ok", { ms: 12 }));
-    expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_test_effort"));
+    expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_effort"));
+    expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_test_ok", { ms: 12 }));
   });
 
   it("rejects an empty echo when fresh discovery reports no_effort but the stored model does not", async () => {
@@ -382,6 +398,25 @@ describe("DirectAPIEditor", () => {
     expect(calls.at(-1)!.body).toEqual({ name: "gateway", model: "raw-a" });
     expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_effort"));
     expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_test_ok", { ms: 12 }));
+  });
+
+  it("accepts stored model suppression of the provider's inherited default effort", async () => {
+    currentProvider = { ...provider, api: "chat", effort: "high", models };
+    draft = { provider: provider.id, model: "raw-efforts-only", effort: "", runtime: "" };
+    const switchedPurpose = { ...purpose, id: "kb", effective: { provider: "launcher.other", model: "other", effort: "low" } };
+    jsonFetch((call) => call.path.endsWith("/launchers/discover")
+      ? response({ models })
+      : response({ ok: true, ms: 12, effort: "" }));
+    await act(async () => root.render(
+      <DirectAPIEditor manager={manager} purpose={switchedPurpose} provider={currentProvider} draft={draft}
+        disabled={false} effortAllowed onChange={() => {}} />,
+    ));
+    await flush();
+    await testProbe();
+    await flush();
+    expect(calls.at(-1)!.body).toEqual({ name: "gateway", model: "raw-efforts-only" });
+    expect(host.textContent).toContain(t("settings-modelconfiguration.api_test_ok", { ms: 12 }));
+    expect(host.textContent).not.toContain(t("settings-modelconfiguration.api_test_effort"));
   });
 
   it("rejects a different nonempty effort for a no_effort Chat model", async () => {

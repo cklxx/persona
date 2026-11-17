@@ -278,13 +278,25 @@ describe.each(["kb", "inbox.triage", "agent.delegate"])("%s Direct API editor", 
 
   it("tests the inherited Chat effort and does not verify a degraded result", async () => {
     current.override = { provider: "launcher.chat", model: "chat-default" };
+    current.effective = { ...current.override, effort: "high" };
+    result = { ok: true, ms: 20, model: "chat-default", effort: "" };
+    await render();
+    await testConnection();
+    expect(probes()[0].body).toEqual({ name: "chat", model: "chat-default", effort: "high" });
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain(t("settings-modelconfiguration.api_test_effort"));
+    expect(dialog().textContent).not.toContain(t("settings-modelconfiguration.api_test_ok", { ms: 20 }));
+    expect(writes()).toEqual([]);
+  });
+
+  it("accepts deliberate suppression when the stored model does not support the inherited effort", async () => {
+    current.override = { provider: "launcher.chat", model: "chat-default" };
     current.effective = { ...current.override, effort: "low" };
     result = { ok: true, ms: 20, model: "chat-default", effort: "" };
     await render();
     await testConnection();
     expect(probes()[0].body).toEqual({ name: "chat", model: "chat-default", effort: "low" });
-    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain(t("settings-modelconfiguration.api_test_effort"));
-    expect(dialog().textContent).not.toContain(t("settings-modelconfiguration.api_test_ok", { ms: 20 }));
+    expect(dialog().textContent).toContain(t("settings-modelconfiguration.api_test_ok", { ms: 20 }));
+    expect(dialog().textContent).not.toContain(t("settings-modelconfiguration.api_test_effort"));
     expect(writes()).toEqual([]);
   });
 
@@ -302,12 +314,12 @@ describe.each(["kb", "inbox.triage", "agent.delegate"])("%s Direct API editor", 
   });
 
   it("accepts the inherited effort when the hub does not suppress it", async () => {
-    current.override = { provider: "launcher.chat", model: "chat-none" };
-    current.effective = { ...current.override, effort: "low" };
-    result = { ok: true, ms: 20, model: "chat-none", effort: "low" };
+    current.override = { provider: "launcher.chat", model: "chat-default" };
+    current.effective = { ...current.override, effort: "high" };
+    result = { ok: true, ms: 20, model: "chat-default", effort: "high" };
     await render();
     await testConnection();
-    expect(probes()[0].body).toEqual({ name: "chat", model: "chat-none", effort: "low" });
+    expect(probes()[0].body).toEqual({ name: "chat", model: "chat-default", effort: "high" });
     expect(dialog().textContent).toContain(t("settings-modelconfiguration.api_test_ok", { ms: 20 }));
     expect(dialog().textContent).not.toContain(t("settings-modelconfiguration.api_test_effort"));
   });

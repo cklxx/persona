@@ -12,12 +12,16 @@ const inputClass = "h-9 w-full rounded-control bg-field px-3 text-meta text-ink 
 type ProbeResult = TestResult & { effort?: string };
 type Failure = { kind: "auth" | "model" | "timeout" | "other" | "effort"; detail?: string };
 
+function directCapabilityModel(provider: ModelProvider, model: string) {
+  const alias = model.trim().toLowerCase().replace(/\[1m\]$/, "");
+  const mapped = provider.api === "chat" && provider.model_aliases && Object.prototype.hasOwnProperty.call(provider.model_aliases, alias)
+    ? provider.model_aliases[alias] : undefined;
+  return mapped ?? model;
+}
+
 export function directEffortState(provider: ModelProvider, discovered: ProviderModel[], model: string) {
   const chat = provider.api === "chat";
-  const alias = model.trim().toLowerCase().replace(/\[1m\]$/, "");
-  const mapped = chat && provider.model_aliases && Object.prototype.hasOwnProperty.call(provider.model_aliases, alias)
-    ? provider.model_aliases[alias] : undefined;
-  const capabilityModel = mapped ?? model;
+  const capabilityModel = directCapabilityModel(provider, model);
   const selected = discovered.find((item) => item.id === capabilityModel);
   const stored = provider.models?.find((item) => item.id === capabilityModel);
   // Chat requests and named probes apply stored capabilities. Discovery is the fallback when no entry is stored.
@@ -40,6 +44,28 @@ export function directEffortState(provider: ModelProvider, discovered: ProviderM
     unsupported, unavailable, reported: !!reported?.length,
     noEffort: chat && capability?.no_effort === true,
   };
+}
+
+/** The echo that proves the requested effort reached the model. Undefined means no effort was requested; an empty
+ * string means stored capabilities deliberately suppress it. Discovery cannot prove suppression on an older hub. */
+export function expectedDirectProbeEffort(provider: ModelProvider, model: string, requested: string): string | undefined {
+  const effort = requested || (provider.api === "chat" ? provider.effort?.trim() ?? "" : "");
+  if (!effort) return undefined;
+  if (provider.api !== "chat") return effort;
+  const capabilityModel = directCapabilityModel(provider, model);
+  const stored = provider.models?.find((item) => item.id === capabilityModel);
+  if (!stored) return effort;
+  if (stored.no_effort) return "";
+  const exact = !!stored.all_efforts?.length;
+  const levels = exact ? stored.all_efforts : stored.efforts;
+  if (!levels?.length) return effort;
+  let wanted = effort;
+  if (["off", "none", "disabled"].includes(effort.trim().toLowerCase())) {
+    if (!exact) return effort;
+    wanted = "none";
+  }
+  // Keep in sync with chatEffortForModel in server/internal/assistant/models_resolve.go.
+  return levels.includes(wanted) ? effort : "";
 }
 
 export function DirectEffortSelect({ state, value, inherited, disabled, onChange }: {
@@ -106,6 +132,7 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
   const effort = draft.effort.trim() || inheritedEffort || (purpose.id === "inbox.triage" ? "off" : "");
   const chat = provider.api === "chat";
   const capabilities = directEffortState(provider, models, model);
+  const expectedEffort = expectedDirectProbeEffort(provider, model, effort);
 
   const retire = () => {
     probe.current?.abort();
@@ -118,7 +145,7 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
     setVerified(null);
     setFailure(null);
     return retire;
-  }, [manager, purpose.id, purpose.revision, provider.id, provider.api, provider.effort, draft.provider, draft.model, draft.effort, model, effort, capabilities.noEffort, unresolvedInheritance]);
+  }, [manager, purpose.id, purpose.revision, provider.id, provider.api, provider.effort, draft.provider, draft.model, draft.effort, model, effort, expectedEffort, capabilities.noEffort, unresolvedInheritance]);
   useLayoutEffect(() => () => discovery.current?.abort(), [manager, provider.id, provider.api, draft.provider]);
 
   useEffect(() => {
@@ -160,17 +187,13 @@ export function DirectAPIEditor({ manager, purpose, provider, draft, disabled, e
     setFailure(null);
     try {
       const requestedEffort = effort;
-      const expectedEffort = requestedEffort || (chat ? provider.effort?.trim() ?? "" : "");
       const result = await api<ProbeResult>("/launchers/test", {
         method: "POST", json: { name, model, effort: requestedEffort || undefined }, signal: controller.signal, timeout: 35_000,
         headers: { [MANAGER_HEADER]: manager }, isAuthContextCurrent: current,
       });
       if (!current()) return;
       if (!result.ok) setFailure(probeFailure(result.error ?? "", result.code));
-      // The hub applies its effective stored no_effort capability to probes and real calls alike. Older hubs omit
-      // providers[].models, so discovery is the fallback only when no stored entry reached this client.
-      else if (expectedEffort && result.effort !== expectedEffort
-        && !(chat && capabilities.noEffort && result.effort === "")) setFailure({ kind: "effort" });
+      else if (expectedEffort !== undefined && result.effort !== expectedEffort) setFailure({ kind: "effort" });
       else setVerified(result);
     } catch (error) {
       if (!current()) return;
