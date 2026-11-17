@@ -1245,8 +1245,6 @@ private fun ChatPage(
                 onQuote = quoteTarget, onEdit = composer::edit,
                 onContext = { text -> linkContexts = linkContexts + messageContext(menuTitle, text, context.resources); notice = res.getString(R.string.chat_screen_added_context) },
                 onForward = forwarding?.let { { target: MessageTarget -> forwardDraft = forwardDraftOf(target, key, session, machine, renderStyle, it) } },
-                onHandToPersona = chrome.onHandToPersona?.takeIf { renderStyle != ChatRenderStyle.Assistant }
-                    ?.let { hand -> { text: String -> hand(handoffMessage(menuTitle, text, context.resources)) } },
                 onNotice = { notice = it }, onFork = onFork, rewind = rewindMenu,
                 onDelete = { target -> messages.firstOrNull { it.clientMessageId == target.id }?.let { message ->
                     deliveryAction(message, if (message.state.allows(DeliveryAction.Cancel)) DeliveryAction.Cancel else DeliveryAction.Delete)

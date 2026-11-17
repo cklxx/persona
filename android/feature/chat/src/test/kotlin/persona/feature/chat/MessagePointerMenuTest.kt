@@ -115,7 +115,6 @@ class MessagePointerMenuTest {
                         MessageMenuSheet(menu, writes = true,
                             onQuote = { events += "quote:${it.id}" }, onEdit = { events += "edit:$it" },
                             onContext = { events += "context:$it" }, onForward = { events += "forward:${it.id}" },
-                            onHandToPersona = { events += "handoff:$it" },
                             onNotice = { events += "notice:$it" }, onFork = { events += "fork:$it" },
                             rewind = RewindMenu(render.rewindBlock) { target, restore -> events += "rewind:${target.id}:$restore" },
                             onDelete = { events += "delete:${it.id}" },
@@ -135,7 +134,7 @@ class MessagePointerMenuTest {
         val pending = ordinary.copy(pending = DeliveryState.WaitingForNetwork)
         val extras = MessageExtras(fork = true, rewind = true, delete = true)
         for (pointer in listOf(false, true)) for (target in listOf(ordinary, reply, pending)) {
-            val expected = messageActions(target, writes = true, forward = false, handOff = true, extras = extras)
+            val expected = messageActions(target, writes = true, forward = false, extras = extras)
             open(pointer, target)
             assertActionOrder(expected, target)
             for (action in expected) {
@@ -157,7 +156,6 @@ class MessagePointerMenuTest {
                     MessageAction.Quote -> assertEquals("quote:${target.id}", events.last())
                     MessageAction.Share -> assertReaderOpensAndReturns(R.string.chat_share_card_title)
                     MessageAction.Forward -> assertEquals("forward:${target.id}", events.last())
-                    MessageAction.HandToPersona -> assertEquals("handoff:${target.text}", events.last())
                     MessageAction.Context -> assertEquals("context:${target.text}", events.last())
                     MessageAction.Edit -> assertEquals("edit:${target.editText}", events.last())
                     MessageAction.Fork -> assertEquals("fork:${target.id}", events.last())

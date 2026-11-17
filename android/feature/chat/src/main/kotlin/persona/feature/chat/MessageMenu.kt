@@ -167,7 +167,6 @@ internal fun MessageMenuSheet(
     onContext: (String) -> Unit,
     /** "Forward": the message to Forward to; null where messages are not forwarded. */
     onForward: ((MessageTarget) -> Unit)?,
-    onHandToPersona: ((String) -> Unit)?,
     onNotice: (String) -> Unit,
     onFork: ((String) -> Unit)? = null,
     rewind: RewindMenu? = null,
@@ -187,7 +186,7 @@ internal fun MessageMenuSheet(
     val extras = MessageExtras(fork = onFork != null, rewind = rewind != null, rewindBlock = rewind?.block, delete = onDelete != null,
         dontSend = PersonaTheme.style == AppStyle.Glass)
     if (target != null) MessageMenuOverlay(menu.pointerAnchor,
-        messageMenuActions(target, writes, onForward != null, onHandToPersona != null, resources, extras) { action ->
+        messageMenuActions(target, writes, onForward != null, resources, extras) { action ->
         when (action) {
             MessageAction.Copy -> { copy(target.text, null) }
             MessageAction.Select -> menu.select(target)
@@ -197,7 +196,6 @@ internal fun MessageMenuSheet(
                 else if (!shareText(context, target.text)) { onNotice(resources.getString(R.string.chat_menu_no_share)) }
             }
             MessageAction.Forward -> onForward?.invoke(target)
-            MessageAction.HandToPersona -> onHandToPersona?.invoke(target.text)
             MessageAction.Context -> onContext(target.text)
             MessageAction.Edit -> onEdit(target.editText)
             MessageAction.Fork -> onFork?.invoke(target.id)
@@ -232,8 +230,7 @@ internal fun messagePicture(target: MessageTarget, source: ShareCardSource): Mes
 /** What the menu offers, in order. */
 internal enum class MessageAction(@StringRes val label: Int) {
     Copy(R.string.chat_menu_copy), Select(R.string.chat_menu_select), Quote(R.string.chat_menu_quote), Forward(R.string.chat_menu_forward),
-    Share(R.string.chat_menu_share), HandToPersona(R.string.chat_menu_hand_to_persona),
-    Context(R.string.chat_menu_context), Edit(R.string.chat_menu_edit),
+    Share(R.string.chat_menu_share), Context(R.string.chat_menu_context), Edit(R.string.chat_menu_edit),
     Fork(R.string.chat_menu_fork), Rewind(R.string.chat_menu_rewind), Delete(R.string.chat_delivery_delete),
 }
 
@@ -246,8 +243,8 @@ internal data class MessageExtras(val fork: Boolean = false, val rewind: Boolean
     /** Deleting one still waiting reads "Don't send", the word of its mark's menu on Glass ([OutboxBubble], iOS); else "Cancel send". */
     val dontSend: Boolean = false)
 
-/** The menu's actions for [target]: [writes] for the composer ones, [forward] when "Forward" is offered, [handOff] for "Hand to Persona". */
-internal fun messageActions(target: MessageTarget, writes: Boolean, forward: Boolean, handOff: Boolean,
+/** The menu's actions for [target]: [writes] for the composer ones, [forward] when "Forward" is offered. */
+internal fun messageActions(target: MessageTarget, writes: Boolean, forward: Boolean,
     extras: MessageExtras = MessageExtras()): List<MessageAction> = buildList {
     target.pending?.let { state ->
         addAll(listOf(MessageAction.Copy, MessageAction.Select, MessageAction.Share))
@@ -259,7 +256,6 @@ internal fun messageActions(target: MessageTarget, writes: Boolean, forward: Boo
     if (writes) add(MessageAction.Quote)
     if (forward) add(MessageAction.Forward)
     add(MessageAction.Share)
-    if (handOff) add(MessageAction.HandToPersona)
     if (writes) add(MessageAction.Context)
     if (writes && target.user) add(MessageAction.Edit)
     // "Branch to new chat" on a reply that is a transcript line of its own; "Rewind to here" on your messages.
@@ -267,9 +263,9 @@ internal fun messageActions(target: MessageTarget, writes: Boolean, forward: Boo
     if (extras.rewind && writes && target.user) add(MessageAction.Rewind)
 }
 
-internal fun messageMenuActions(target: MessageTarget, writes: Boolean, forward: Boolean, handOff: Boolean, resources: Resources,
+internal fun messageMenuActions(target: MessageTarget, writes: Boolean, forward: Boolean, resources: Resources,
     extras: MessageExtras, run: (MessageAction) -> Unit): List<JAction> =
-    messageActions(target, writes, forward, handOff, extras).mapIndexed { index, action ->
+    messageActions(target, writes, forward, extras).mapIndexed { index, action ->
         val label = if (action == MessageAction.Rewind && extras.rewindBlock != null)
             resources.getString(R.string.chat_menu_rewind_blocked, extras.rewindBlock)
         // Still waiting to go: the words of its own action in the status panel.
@@ -282,7 +278,6 @@ internal fun messageMenuActions(target: MessageTarget, writes: Boolean, forward:
             MessageAction.Quote -> PhIcons.Quotes
             MessageAction.Forward -> PhIcons.ArrowBendUpRight
             MessageAction.Share -> PhIcons.ShareNetwork
-            MessageAction.HandToPersona -> PhIcons.Sparkle
             MessageAction.Context -> PhIcons.Paperclip
             MessageAction.Edit -> PhIcons.PencilSimple
             MessageAction.Fork -> PhIcons.GitBranch

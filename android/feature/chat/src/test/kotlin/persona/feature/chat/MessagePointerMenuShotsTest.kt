@@ -96,7 +96,7 @@ class MessagePointerMenuShotsTest {
                 PersonaTheme(darkTheme = dark, reduceMotion = true, style = style) {
                     val window = LocalWindowInfo.current.containerSize
                     val actions = messageMenuActions(MessageTarget("user#1", "message", user = true), writes = true, forward = false,
-                        handOff = true, LocalResources.current, MessageExtras(rewind = true)) {}
+                        LocalResources.current, MessageExtras(rewind = true)) {}
                     Box(Modifier.fillMaxSize().background(PersonaTheme.palette.background).testTag("host")) {
                         JPointerMenu(Offset(window.width * anchorCase.x, window.height * anchorCase.y), {},
                             actions, Modifier.testTag("pointer-menu"))

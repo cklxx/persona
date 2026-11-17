@@ -32,32 +32,32 @@ class MessageMenuTest {
     private val res = ApplicationProvider.getApplicationContext<Context>().resources
     @Test fun theMenuOffersWhatTheConversationAllows() {
         val mine = MessageTarget("m", "你好", user = true)
-        // Forward right after Quote (#3901), then Hand to Persona where the shell offers it.
-        assertEquals(listOf(Copy, Select, Quote, Forward, Share, HandToPersona, Context, Edit), messageActions(mine, writes = true, forward = true, handOff = true))
-        assertEquals(listOf(Copy, Select, Quote, Forward, Share, Context, Edit), messageActions(mine, writes = true, forward = true, handOff = false))
+        // Forward right after Quote (#3901); it took Hand to Persona's place.
+        assertEquals(listOf(Copy, Select, Quote, Forward, Share, Context, Edit), messageActions(mine, writes = true, forward = true))
+        assertEquals(listOf(Copy, Select, Quote, Share, Context, Edit), messageActions(mine, writes = true, forward = false))
         // Read-only (a sub-agent, history): nothing that changes the composer; Forward changes another chat's, so it stays.
-        assertEquals(listOf(Copy, Select, Share), messageActions(mine, writes = false, forward = false, handOff = true))
-        assertEquals(listOf(Copy, Select, Forward, Share), messageActions(mine, writes = false, forward = true, handOff = true))
+        assertEquals(listOf(Copy, Select, Share), messageActions(mine, writes = false, forward = false))
+        assertEquals(listOf(Copy, Select, Forward, Share), messageActions(mine, writes = false, forward = true))
         // An agent's reply cannot be edited.
-        assertEquals(listOf(Copy, Select, Quote, Share, Context), messageActions(MessageTarget("a", "回复", user = false), true, false, false))
+        assertEquals(listOf(Copy, Select, Quote, Share, Context), messageActions(MessageTarget("a", "回复", user = false), true, false))
         // "Branch to new chat" on a reply that is a transcript line; "Rewind to here" on yours, only where the composer is the user's.
         val extras = MessageExtras(fork = true, rewind = true)
-        assertEquals(listOf(Copy, Select, Quote, Share, Context, Fork), messageActions(MessageTarget("u#1", "回复", user = false), true, false, false, extras))
-        assertEquals(listOf(Copy, Select, Quote, Share, Context), messageActions(MessageTarget("line3", "回复", user = false), true, false, false, extras))
-        assertEquals(listOf(Copy, Select, Quote, Share, Context, Edit, Rewind), messageActions(mine, true, false, false, extras))
-        assertEquals(listOf(Copy, Select, Share), messageActions(mine, writes = false, forward = false, handOff = false, extras))
+        assertEquals(listOf(Copy, Select, Quote, Share, Context, Fork), messageActions(MessageTarget("u#1", "回复", user = false), true, false, extras))
+        assertEquals(listOf(Copy, Select, Quote, Share, Context), messageActions(MessageTarget("line3", "回复", user = false), true, false, extras))
+        assertEquals(listOf(Copy, Select, Quote, Share, Context, Edit, Rewind), messageActions(mine, true, false, extras))
+        assertEquals(listOf(Copy, Select, Share), messageActions(mine, writes = false, forward = false, extras))
         // Only on this phone (#4645): Copy, Select, Share, then Delete ("Cancel send" while it waits) where the page deletes;
         // nothing that treats it as a transcript line (Quote, Context, Edit, Rewind).
         val deletes = MessageExtras(fork = true, rewind = true, delete = true)
         for (state in listOf(DeliveryState.Queued, DeliveryState.WaitingForNetwork, DeliveryState.Refused, DeliveryState.Rejected)) {
             val pending = mine.copy(pending = state)
-            assertEquals("$state", listOf(Copy, Select, Share, Delete), messageActions(pending, true, true, false, deletes))
-            assertEquals("$state", listOf(Copy, Select, Share), messageActions(pending, true, true, false, extras))
-            assertEquals("$state", listOf(Copy, Select, Share), messageActions(pending, writes = false, forward = true, handOff = false, extras = deletes))
+            assertEquals("$state", listOf(Copy, Select, Share, Delete), messageActions(pending, true, true, deletes))
+            assertEquals("$state", listOf(Copy, Select, Share), messageActions(pending, true, true, extras))
+            assertEquals("$state", listOf(Copy, Select, Share), messageActions(pending, writes = false, forward = true, extras = deletes))
         }
         // The hub may have it: no Delete.
         for (state in listOf(DeliveryState.Sending, DeliveryState.Sent, DeliveryState.Unknown, DeliveryState.Verifying, DeliveryState.NeedsConfirmation))
-            assertEquals("$state", listOf(Copy, Select, Share), messageActions(mine.copy(pending = state), true, true, false, deletes))
+            assertEquals("$state", listOf(Copy, Select, Share), messageActions(mine.copy(pending = state), true, true, deletes))
         assertTrue(messageMenuWrites(readOnly = false, session = null))
         assertTrue(!messageMenuWrites(readOnly = true, session = null))
         // A Codex history session takes no messages: no quote, edit or context either.
