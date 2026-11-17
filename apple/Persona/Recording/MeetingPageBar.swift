@@ -129,7 +129,6 @@ struct MeetingPageBar: View {
         .padding(.horizontal, Theme.Space.page)
         .padding(.vertical, Theme.Space.s)
         .frame(maxWidth: .infinity)
-        .tabSwitchRoom() // beside the open Duo's floating tabs' switch (#4231)
         .background { Theme.groupedPage.ignoresSafeArea(edges: .bottom) }
         .animation(reduceMotion ? nil : Theme.Motion.state, value: writing)
         .onChange(of: fieldDisabled) { _, disabled in
@@ -365,7 +364,7 @@ struct MeetingPageBar: View {
             if entry.roomMeeting {
                 MeetingRoomButton(title: String(localized: "Speaker [Meeting Room]"),
                                   symbol: role.speaks ? Theme.Icon.answersAloud : Theme.Icon.answersOnScreen, on: role.speaks) {
-                    // Out loud or on screen; the system's echo cancellation stays as the meeting started (B2 decides).
+                    // Out loud or on screen; out loud turns echo cancellation on too where the experiment is on (`setSpeaks`, B2).
                     Haptics.tap()
                     _ = MeetingRecorder.shared.setRole(role.speaks ? .listener : .participant, recordingID: entry.id.uuidString)
                 }
@@ -381,6 +380,12 @@ struct MeetingPageBar: View {
             }
             MeetingRoomButton(title: String(localized: "End [Meeting Room]"), symbol: Theme.Icon.interrupt, ends: true) { confirmingStop = true }
                 .accessibilityIdentifier("recording-stop")
+                // End on the Lock Screen or in the Dynamic Island (#8731 V4) asks here, never ends the meeting at once.
+                .onChange(of: RecordingLivePresenter.shared.endAsking, initial: true) { _, asked in
+                    guard asked == entry.id.uuidString.lowercased() else { return }
+                    RecordingLivePresenter.shared.endAsked()
+                    confirmingStop = true
+                }
                 // On the button, so the question points at End.
                 .confirmationDialog("End the Meeting?", isPresented: $confirmingStop, titleVisibility: .visible) {
                     Button("End and Write the Minutes", role: .destructive) { MeetingRecorder.shared.stop(recordingID: entry.id.uuidString) }
