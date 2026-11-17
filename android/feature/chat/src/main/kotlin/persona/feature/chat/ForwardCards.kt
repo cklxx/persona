@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import persona.core.contracts.SessionKey
 import persona.core.designsystem.ChatContextBodyMaxHeight
 import persona.core.designsystem.JIcon
+import persona.core.designsystem.MessageContextGroup
 import persona.core.designsystem.PersonaTheme
 import persona.core.designsystem.Tokens
 import persona.core.designsystem.currentLocale
@@ -123,14 +124,27 @@ fun carriesForward(text: String): Boolean =
  */
 @Composable
 fun PendingForwardBubble(text: String, id: String) {
-    val parsed = remember(text) { persona.core.domain.parseContexts(text) }
-    val forwards = parsed.first.filter { it.kind == ForwardMessage.KIND }
-    val rest = composerMessagePreview(parsed.second)
-    persona.core.designsystem.UserBubbleFrame {
-        forwards.forEachIndexed { index, forward ->
-            ForwardBubbleCard(forward, "outbox/$id/$index")
-            if (index < forwards.lastIndex || rest.isNotEmpty()) Spacer(Modifier.padding(top = Tokens.Space.s))
+    // Everything the message carries besides the forward, as the sent bubble shows it (MergedUserBubble): the other
+    // contexts above it, then the files, photos and note inside it.
+    val model = remember(text) { messageModel(text, user = true) }
+    val forwards = model.contexts.filter { it.kind == ForwardMessage.KIND }
+    val contexts = model.contexts.filter { it.kind != ForwardMessage.KIND }
+    val rest = model.plain
+    val uri = androidx.compose.ui.platform.LocalUriHandler.current
+    Column(Modifier.fillMaxWidth()) {
+        MessageContextGroup(contexts, "${id}/contexts", uri::openUri)
+        AttachedFileCards(model.attached)
+        persona.core.designsystem.UserBubbleFrame {
+            forwards.forEachIndexed { index, forward ->
+                ForwardBubbleCard(forward, "outbox/$id/$index")
+                if (index < forwards.lastIndex || rest.isNotEmpty() || model.images.isNotEmpty())
+                    Spacer(Modifier.padding(top = Tokens.Space.s))
+            }
+            if (model.images.isNotEmpty()) {
+                AttachedPhotoRow(model.images)
+                if (rest.isNotEmpty()) Spacer(Modifier.padding(top = Tokens.Space.s))
+            }
+            if (rest.isNotEmpty()) Text(rest, style = PersonaTheme.type.body, color = PersonaTheme.palette.ink)
         }
-        if (rest.isNotEmpty()) Text(rest, style = PersonaTheme.type.body, color = PersonaTheme.palette.ink)
     }
 }
