@@ -158,6 +158,40 @@ class NewAgentAsyncTest {
         } finally { elsewhere.viewModelScope.cancel() }
     }
 
+    /** A forwarded start whose answer was lost comes back with its card and what was typed after it, not a blank field. */
+    @Test fun aPendingForwardStartIsRestoredWithItsCard() = test {
+        val forward = "<persona-context kind=\"forward\" title=\"转发自 Persona · Persona\" url=\"jarvis://session/m/s?at=x%230\"" +
+            " msg=\"x#0\" role=\"persona\" author=\"Persona\" chat=\"Persona\">\n原文\n</persona-context>"
+        val store = MemoryStore().apply {
+            operation = AgentStartOperation("op", AgentStartRequest("first", "/code", "claude", async = true),
+                forward + "\n\n如有疑问告诉我", "first-id")
+        }
+        val model = NewAgentViewModel(Service(), store, machines, Sender())
+        try {
+            advanceUntilIdle()
+            assertEquals(forward, model.state.value.context)
+            assertEquals("如有疑问告诉我", model.state.value.prompt)
+            assertNotNull(usableForward(model.state.value.context))
+        } finally { model.viewModelScope.cancel() }
+    }
+
+    /** A context the card cannot read is no first message: a required prompt stays required. */
+    @Test fun anUnreadableContextDoesNotStandInForARequiredFirstMessage() = test {
+        val service = Service().apply { available = listOf(AgentLauncher("claude"), AgentLauncher("codex", agentType = "codex")) }
+        val store = MemoryStore()
+        val model = NewAgentViewModel(service, store, machines, Sender(), prefill = NewAgentPrefill(context = "不是转发的块"))
+        try {
+            advanceUntilIdle()
+            model.selection(model.state.value.selection.copy(launcher = "codex"))
+            assertTrue(model.state.value.promptRequired)
+            assertNull(usableForward(model.state.value.context))
+            assertFalse(startable(model.state.value, machines.value))
+            model.submit()
+            advanceUntilIdle()
+            assertEquals(0, service.starts)
+        } finally { model.viewModelScope.cancel() }
+    }
+
     private class MemoryStore : AgentCreationStore {
         var operation: AgentStartOperation? = null
         val saved = mutableMapOf<String, AgentDefaults>()

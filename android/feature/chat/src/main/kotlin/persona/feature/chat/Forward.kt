@@ -76,6 +76,12 @@ object ForwardMessage {
     /** The block a message's text holds, read back (the new-agent form's card); null when it holds no forward. */
     fun read(text: String): ChatLinkContext? = ChatLinkContext.parse(text).first.firstOrNull { it.isForward }
 
+    /** The block a message's text holds and what was typed after it (a pending start's first message, restored). */
+    fun split(text: String): Pair<ChatLinkContext?, String> {
+        val (refs, rest) = ChatLinkContext.parse(text)
+        return refs.firstOrNull { it.isForward } to rest
+    }
+
     private val quoteKinds = setOf(ChatLinkContext.QUOTE, "context", "edit", KIND)
 
     /**

@@ -357,7 +357,7 @@ private fun LazyListScope.newAgentItems(
         }
     }
     // A forwarded message (#3901) goes before the first message: its card over it.
-    state.context?.let(ForwardMessage::read)?.let { forward -> item("forward") { ForwardComposerCard(forward) } }
+    usableForward(state.context)?.let(ForwardMessage::read)?.let { forward -> item("forward") { ForwardComposerCard(forward) } }
     item("prompt") {
         JTextField(state.prompt, model::prompt, enabled = !state.locked,
             label = stringResource(when {
@@ -407,7 +407,7 @@ private fun NewAgentFooter(state: NewAgentState, model: NewAgentViewModel, machi
 internal fun startable(state: NewAgentState, machines: List<Machine>): Boolean =
     state.selection.cwd.isNotBlank() && (state.selection.launcher.isNotBlank() || state.following) &&
         machines.any { it.id == state.machineId && it.online } &&
-        (!state.promptRequired || state.prompt.isNotBlank() || state.context != null) && state.attachmentsHold == null
+        (!state.promptRequired || state.prompt.isNotBlank() || usableForward(state.context) != null) && state.attachmentsHold == null
 
 internal fun String.agentLabel() = when (this) { "claude" -> "Claude Code"; "codex" -> "Codex"; "traex" -> "TRAEX"; else -> this }
 

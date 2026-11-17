@@ -8,7 +8,9 @@ import persona.core.contracts.Session
 import persona.core.contracts.api.*
 import persona.core.designsystem.UiText
 import persona.core.designsystem.failureReasonText
+import persona.feature.chat.ChatLinkContext
 import persona.feature.chat.ComposerUploadLimiter
+import persona.feature.chat.ForwardMessage
 import persona.feature.chat.R as ChatR
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -38,6 +40,10 @@ internal data class AgentSpacePreset(val machineId: String, val workspaceId: Str
  */
 internal data class NewAgentPrefill(val machineId: String? = null, val cwd: String? = null, val prompt: String? = null,
     val context: String? = null)
+
+/** The forward block a required first message may stand in for: one the card can read. Null for no context, or unreadable. */
+internal fun usableForward(context: String?): String? =
+    context?.takeIf { it.isNotBlank() }?.takeIf { ForwardMessage.read(it) != null }
 
 /** The hub's "New Agent" model use (docs/assistant/model-config.md), read once per form. */
 internal sealed interface NewAgentModelConfig {
@@ -271,10 +277,15 @@ internal class NewAgentViewModel(
                     val claude = r.agentType == null
                     val mode = r.permissionMode.orEmpty()
                     val effort = r.effort.orEmpty()
+                    // A forwarded start's first message holds its card: the form shows that card again and what was typed after it.
+                    val restored = pending.firstMessage ?: r.prompt.orEmpty()
+                    val (forward, typed) = ForwardMessage.split(restored).let { (block, rest) ->
+                        if (block != null) block.xml() to rest else null to restored
+                    }
                     mutable.value = NewAgentState(initialized = true, machineId = r.machineId,
                         selection = AgentDefaults(r.cwd, r.launcher, if (claude) mode else "", if (claude) effort else ""),
                         providerMode = if (claude) "" else mode, providerEffort = if (claude) "" else effort, model = r.model.orEmpty(),
-                        prompt = pending.firstMessage ?: r.prompt.orEmpty(), pending = pending, error = AgentText(R.string.agents_new_error_pending),
+                        prompt = typed, context = forward, pending = pending, error = AgentText(R.string.agents_new_error_pending),
                         recentSetups = recents)
                 } else {
                     val last = store.lastMachine(service.scope)
@@ -567,7 +578,7 @@ internal class NewAgentViewModel(
         if (previous == null && (current.selection.cwd.isBlank() || (current.selection.launcher.isBlank() && !current.following) ||
                 machines.value.none { it.id == current.machineId && it.online } ||
                 (current.space != null && current.space.machineId != current.machineId) ||
-                (current.promptRequired && current.prompt.isBlank() && current.context == null) || current.attachmentsHold != null)) return
+                (current.promptRequired && current.prompt.isBlank() && usableForward(current.context) == null) || current.attachmentsHold != null)) return
         mutable.update { it.copy(starting = true, error = null) }
         viewModelScope.launch {
             try {
@@ -601,7 +612,7 @@ internal class NewAgentViewModel(
     private fun newOperation(current: NewAgentState, agentType: String, worktree: WorktreeAdded? = null): AgentStartOperation {
         val typed = current.prompt.trim().takeIf { it.isNotEmpty() }
         // A forward goes first, what is typed after it (iOS NewChat's contextBody); the name comes from what is typed.
-        val forwarded = current.context?.takeIf { it.isNotBlank() }
+        val forwarded = usableForward(current.context)
         val async = sender != null && current.firstMessageAfterStart
         // The photos and the uploaded files go with the first message as the composer writes them (#2321); the tab is
         // named from what was typed, as on iOS.
