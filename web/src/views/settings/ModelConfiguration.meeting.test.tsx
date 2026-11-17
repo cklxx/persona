@@ -93,6 +93,9 @@ let catalogFails: boolean;
 /** Held answers: the next catalog GET's (read when it was asked), and each save's. */
 let catalogGate: Promise<void> | undefined;
 let patchGate: Promise<void> | undefined;
+let parentFailures: number;
+let parentGated: boolean;
+let parentReleases: (() => void)[];
 let patches: { path: string; body: Record<string, unknown> }[];
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
 /** The paths the page asked the hub for, in order. */
@@ -123,7 +126,15 @@ const hub = async (input: RequestInfo | URL, init?: RequestInit): Promise<Respon
     return json(body);
   }
   const listed = catalog().find((p) => path.endsWith(`/purposes/${p.id}`));
-  if (listed) return json({ purpose: listed, providers });
+  if (listed) {
+    if (listed.id === "kb" && parentFailures > 0) {
+      parentFailures--;
+      return json({ error: "parent busy" }, 503);
+    }
+    const response = json({ purpose: listed, providers });
+    if (listed.id === "kb" && parentGated) await new Promise<void>((resolve) => parentReleases.push(resolve));
+    return response;
+  }
   if (path.includes("/purposes/")) return json({ error: "not found" }, 404);
   if (path.endsWith("/models")) return lists && path.endsWith("/providers/launcher.claude/models") ? json(CLAUDE_MODELS) : json({ error: "unavailable" }, 404);
   throw new Error(`Unexpected request: ${path}`);
@@ -181,6 +192,9 @@ beforeEach(async () => {
   catalogFails = false;
   catalogGate = undefined;
   patchGate = undefined;
+  parentFailures = 0;
+  parentGated = false;
+  parentReleases = [];
   patches = [];
   providers.length = 4;
   Object.assign(KB, { provider: "api.messages", model: "kb-model" });
@@ -350,6 +364,66 @@ describe("the meeting uses' models (#7980)", () => {
     await act(async () => button("Save", dialog())!.click());
     await flush();
     expect(patches).toEqual([{ path: "/api/v1/model-config/purposes/meeting.minutes", body: { revision: 4, provider: "api.chat", model: null, effort: "low" } }]);
+  });
+
+  it("uses the linked parent after clearing a model override without the catalog", async () => {
+    catalogFails = true;
+    Object.assign(KB, { provider: "api.chat", model: "parent-model", effort: "high" });
+    providers[3].models = [
+      { id: "parent-model", efforts: ["low"], all_efforts: ["none", "low"] },
+      { id: "child-model", efforts: ["high"], all_efforts: ["none", "high"] },
+      { id: "chat-default", efforts: ["high"], all_efforts: ["none", "high"] },
+    ];
+    setApart("meeting.minutes", { model: "child-model" }, 4);
+    await render("meeting.minutes");
+    expect(requested()).toContain("/api/v1/model-config/purposes/kb");
+    type(modelField()!, "");
+    await flush();
+    expect([...effortSelect()!.options].map((option) => option.value)).toEqual(["", "off", "low"]);
+    await act(async () => {
+      effortSelect()!.value = "low";
+      effortSelect()!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => button("Save", dialog())!.click());
+    await flush();
+    expect(patches).toEqual([{ path: "/api/v1/model-config/purposes/meeting.minutes", body: { revision: 4, provider: null, model: null, effort: "low" } }]);
+  });
+
+  it("ignores an older retry after the newest linked parent loads", async () => {
+    catalogFails = true;
+    parentFailures = 1;
+    parentGated = true;
+    Object.assign(KB, { provider: "api.chat", model: "old-parent", effort: "high" });
+    providers[3].models = [
+      { id: "old-parent", efforts: ["low"], all_efforts: ["none", "low"] },
+      { id: "new-parent", efforts: ["medium"], all_efforts: ["none", "medium"] },
+      { id: "child-model", efforts: ["high"], all_efforts: ["none", "high"] },
+      { id: "chat-default", efforts: ["high"], all_efforts: ["none", "high"] },
+    ];
+    setApart("meeting.minutes", { model: "child-model" }, 4);
+    await render("meeting.minutes");
+    expect(button("Retry", dialog())).toBeDefined();
+    await act(async () => button("Retry", dialog())!.click());
+    await flush();
+    expect(parentReleases).toHaveLength(1);
+    KB.model = "new-parent";
+    await act(async () => button("Retry", dialog())!.click());
+    await flush();
+    expect(parentReleases).toHaveLength(2);
+    await act(async () => parentReleases[1]());
+    await flush();
+    await act(async () => parentReleases[0]());
+    await flush();
+    type(modelField()!, "");
+    await flush();
+    expect([...effortSelect()!.options].map((option) => option.value)).toEqual(["", "off", "medium"]);
+    await act(async () => {
+      effortSelect()!.value = "medium";
+      effortSelect()!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => button("Save", dialog())!.click());
+    await flush();
+    expect(patches).toEqual([{ path: "/api/v1/model-config/purposes/meeting.minutes", body: { revision: 4, provider: null, model: null, effort: "medium" } }]);
   });
 
   it("keeps Chat effort when an older hub's explicit Chat binding switches to another Chat provider", async () => {

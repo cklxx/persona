@@ -171,8 +171,10 @@ function PurposeEditor({ manager, id, sourceName, catalog, onClose, onSaved }: {
   catalog?: ModelPurpose[]; onClose: () => void; onSaved: () => void;
 }) {
   const alive = useRef(true);
+  const loads = useRef(0);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const [data, setData] = useState<ModelPurposeBody | null>(null);
+  const [linkedParent, setLinkedParent] = useState<ModelPurpose>();
   const [draft, setDraft] = useState<ModelDraft>({ provider: "", model: "", effort: "", runtime: "" });
   const [error, setError] = useState("");
   const [conflict, setConflict] = useState(false);
@@ -197,13 +199,22 @@ function PurposeEditor({ manager, id, sourceName, catalog, onClose, onSaved }: {
   const kept = useStore((s) => s.features.includes(ASSISTANT_MODEL_PICK_FEATURE));
   const load = async () => {
     if (!id) return;
+    const at = ++loads.current;
     try {
       const r = await modelPurpose(id, manager);
+      if (!alive.current || at !== loads.current) return;
+      // A direct link can outlive the catalog request. A saved model override hides the parent model that clearing it
+      // will inherit, so load that parent before offering model-specific efforts; failure keeps the retry visible.
+      const parent = !catalog && r.purpose.override.model && r.purpose.parent
+        ? (await modelPurpose(r.purpose.parent, manager)).purpose : undefined;
+      if (!alive.current || at !== loads.current) return;
+      setLinkedParent(parent);
       setData(r);
       setDraft(draftFor(r.purpose));
       setError("");
       setConflict(false);
     } catch (e) {
+      if (!alive.current || at !== loads.current) return;
       setError(errorText(e));
     }
   };
@@ -222,7 +233,8 @@ function PurposeEditor({ manager, id, sourceName, catalog, onClose, onSaved }: {
   // The draft names no provider of its own: once saved it runs on what it follows. While nothing is overridden that is
   // what is in effect; with an override, the binding of the category a use with a record of its own follows (from the
   // page's catalog), as the reset makes it (#7980). Without that, what is in effect, as before.
-  const parent = p && catalog ? parentCategory(p, catalog) : undefined;
+  const parent = (p && catalog ? parentCategory(p, catalog) : undefined)
+    ?? (linkedParent?.id === p?.parent ? linkedParent : undefined);
   const following = !!p && overridden(p.override) && !!parent;
   const runsOn = draft.provider || (following ? parent?.effective?.provider : p?.effective?.provider);
   const chosen = data?.providers.find((v) => v.id === runsOn);
