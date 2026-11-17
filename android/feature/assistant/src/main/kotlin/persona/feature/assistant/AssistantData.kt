@@ -265,6 +265,14 @@ internal suspend fun managerMainTarget(manager: String, snapshot: AssistantSnaps
     snapshot.mainSession?.takeIf { snapshot.managerId == manager } ?: resolve(manager)
 
 /** Null targets always enter the durable main queue before any network request. */
+/**
+ * The forwards over the composer after a send that never reached the outbox: [sent]'s card goes back in front of
+ * [held], once each (a forward the outbox already took is not placed again).
+ */
+internal fun restoreForwards(sent: List<persona.feature.chat.ChatLinkContext>,
+    held: List<persona.feature.chat.ChatLinkContext>): List<persona.feature.chat.ChatLinkContext> =
+    sent.filterNot { ref -> held.any { it.id == ref.id } } + held
+
 internal suspend fun sendAssistantMessage(
     main: MainConversationSender?, sender: MessageSender, session: SessionKey?, text: String, id: String,
 ) {

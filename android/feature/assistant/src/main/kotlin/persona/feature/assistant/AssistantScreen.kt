@@ -572,6 +572,8 @@ fun AssistantScreen(
         val operationId = requireNotNull(pendingClientId)
         val submittedChoice = managerChoice
         scope.launch {
+            // Set once the message is in the outbox: only then does a forward go off the composer for good.
+            var accepted = false
             try {
                 // Started once: a retry after the message failed sends to the same new conversation, while the
                 // launcher is still the one that started it.
@@ -603,6 +605,7 @@ fun AssistantScreen(
                     } else forManager?.let { error("managers unavailable") }
                 }
                 sendAssistantMessage(mainConversationSender, messageSender, target, submitted, operationId)
+                accepted = true
                 // Clear the submitted assistant's editor after commit, even while another assistant is shown.
                 if (sentDraft != null) {
                     composer.clearIfUnchanged(sentDraft)
@@ -629,6 +632,9 @@ fun AssistantScreen(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
+                // Nothing reached the outbox: the forward this send carried stays over the composer, to go again.
+                if (!accepted && forwards.isNotEmpty()) persona.feature.chat.ForwardPlacements.home =
+                    restoreForwards(forwards, persona.feature.chat.ForwardPlacements.home)
                 if (startsOne) failed(persona.core.designsystem.operationFeedback(error).text.resolve(resources))
                 else if (feedback?.failure(error) != true)
                     toast.show(persona.core.designsystem.FeedbackNotice(persona.core.designsystem.operationFeedback(error).text.resolve(resources), style = persona.core.designsystem.FeedbackStyle.Error))
