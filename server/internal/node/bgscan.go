@@ -39,7 +39,7 @@ var bgSlot = make(chan struct{}, 1)
 // transcript's goal, ultracode and plan markers (bgMatch).
 var bgMarkers = [][]byte{[]byte("ScheduleWakeup"), []byte("Next wakeup scheduled"), []byte("CronCreate"), []byte("CronDelete"),
 	[]byte("run_in_background"), []byte("in background with ID"), []byte("moved to the background"), []byte("manually ba"), []byte("Async agent launched"),
-	[]byte("task-notification"), []byte(`"name":"Agent"`), []byte(`"name":"Task"`), []byte(`"TaskStop"`), []byte(`"KillShell"`), []byte(`"KillBash"`),
+	[]byte("task-notification"), []byte(`"name":"Agent"`), []byte(`"name":"Task"`), []byte(`"TaskStop"`), []byte(`"Kill`),
 	[]byte(`"name":"Workflow"`), []byte("Workflow launched in background"), []byte(`"name":"Monitor"`), []byte("Monitor started")}
 
 func (n *Node) backgroundTasks(path string) (tasks []proto.BackgroundTask, loop *proto.LoopInfo, goal *proto.GoalInfo, pending bool) {
