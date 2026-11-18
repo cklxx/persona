@@ -400,6 +400,12 @@ fun AssistantScreen(
             navigator.navigate(ChatRoute(key.machineId, key.sessionId))
         }
     }
+
+    /** Opening a conversation from a list: a forward waiting for the new-conversation page is dropped with it (#3901). */
+    fun openFromList(key: SessionKey) {
+        persona.feature.chat.ForwardPlacements.home = emptyList()
+        openConversation(key)
+    }
     fun clearConversation() {
         openedMain = true
         viewingMainQueue = false
@@ -787,7 +793,7 @@ fun AssistantScreen(
                 snapshot.mainSession?.let(::openConversation) ?: run { newConversation(); viewingMainQueue = true }
                 scope.launch { drawerOpen = false }
             },
-            onOpen = { openConversation(it); scope.launch { drawerOpen = false } },
+            onOpen = { openFromList(it); scope.launch { drawerOpen = false } },
             onInfo = {
                 if (it == AssistantInfo.Knowledge && onKnowledge != null) onKnowledge()
                 else if (pageManagement != null && it == AssistantInfo.Launcher) settingsOpen = true
@@ -818,7 +824,7 @@ fun AssistantScreen(
             found = foundChats, searchPartial = searchPartial,
         )
         ConversationHistoryDialogs(history, snapshot.conversations, scope,
-            onOpen = { openConversation(it); scope.launch { drawerOpen = false } },
+            onOpen = { openFromList(it); scope.launch { drawerOpen = false } },
             notice = { message ->
                 if (feedback?.notice(message, persona.core.designsystem.FeedbackStyle.Success) != true)
                     toast.show(persona.core.designsystem.FeedbackNotice(message, style = persona.core.designsystem.FeedbackStyle.Success))

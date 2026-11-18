@@ -279,9 +279,12 @@ internal class NewAgentViewModel(
                     val effort = r.effort.orEmpty()
                     // A forwarded start's first message holds its card: the form shows that card again and what was typed after it.
                     val restored = pending.firstMessage ?: r.prompt.orEmpty()
-                    val (forward, typed) = ForwardMessage.split(restored).let { (block, rest) ->
-                        if (block != null) block.xml() to rest else null to restored
-                    }
+                    // Its forward's card again, and the rest of the first message as it was saved: any other block and
+                    // what was typed. Without a forward, the saved message is the prompt as it is.
+                    val (block, rest) = ForwardMessage.split(restored)
+                    val forward = block?.xml()
+                    // A start of something else keeps its first message as it was sent, other blocks included.
+                    val typed = if (forward != null) rest else restored
                     mutable.value = NewAgentState(initialized = true, machineId = r.machineId,
                         selection = AgentDefaults(r.cwd, r.launcher, if (claude) mode else "", if (claude) effort else ""),
                         providerMode = if (claude) "" else mode, providerEffort = if (claude) "" else effort, model = r.model.orEmpty(),

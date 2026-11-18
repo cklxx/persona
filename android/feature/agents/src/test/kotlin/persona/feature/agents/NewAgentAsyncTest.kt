@@ -175,6 +175,38 @@ class NewAgentAsyncTest {
         } finally { model.viewModelScope.cancel() }
     }
 
+    /** A pending start of something else keeps its first message as saved, blocks and spacing included. */
+    @Test fun aPendingStartWithoutAForwardKeepsItsFirstMessage() = test {
+        val context = "<persona-context kind=\"context\" title=\"修复登录\" url=\"\">\n原文\n</persona-context>"
+        val saved = context + "\n\n  看这个  "
+        val store = MemoryStore().apply {
+            operation = AgentStartOperation("op", AgentStartRequest("first", "/code", "claude", async = true), saved, "first-id")
+        }
+        val model = NewAgentViewModel(Service(), store, machines, Sender())
+        try {
+            advanceUntilIdle()
+            assertNull(model.state.value.context)
+            assertEquals(saved, model.state.value.prompt)
+        } finally { model.viewModelScope.cancel() }
+    }
+
+    /** A restored forward keeps the other block beside it and the words after them. */
+    @Test fun aPendingForwardStartKeepsItsOtherContexts() = test {
+        val forward = "<persona-context kind=\"forward\" title=\"转发自 Persona · Persona\" url=\"jarvis://session/m/s?at=x%230\"" +
+            " msg=\"x#0\" role=\"persona\" author=\"Persona\" chat=\"Persona\">\n原文\n</persona-context>"
+        val context = "<persona-context kind=\"context\" title=\"修复登录\" url=\"\">\n页面原文\n</persona-context>"
+        val saved = forward + "\n" + context + "\n\n看这个"
+        val store = MemoryStore().apply {
+            operation = AgentStartOperation("op", AgentStartRequest("first", "/code", "claude", async = true), saved, "first-id")
+        }
+        val model = NewAgentViewModel(Service(), store, machines, Sender())
+        try {
+            advanceUntilIdle()
+            assertEquals(forward, model.state.value.context)
+            assertEquals(context + "\n\n看这个", model.state.value.prompt)
+        } finally { model.viewModelScope.cancel() }
+    }
+
     /** A context the card cannot read is no first message: a required prompt stays required. */
     @Test fun anUnreadableContextDoesNotStandInForARequiredFirstMessage() = test {
         val service = Service().apply { available = listOf(AgentLauncher("claude"), AgentLauncher("codex", agentType = "codex")) }

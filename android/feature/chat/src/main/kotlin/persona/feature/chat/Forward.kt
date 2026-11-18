@@ -78,8 +78,8 @@ object ForwardMessage {
 
     /** The block a message's text holds and what was typed after it (a pending start's first message, restored). */
     fun split(text: String): Pair<ChatLinkContext?, String> {
-        val (refs, rest) = ChatLinkContext.parse(text)
-        return refs.firstOrNull { it.isForward } to rest
+        val forward = read(text) ?: return null to text
+        return forward to ChatLinkContext.withoutForwards(text)
     }
 
     private val quoteKinds = setOf(ChatLinkContext.QUOTE, "context", "edit", KIND)

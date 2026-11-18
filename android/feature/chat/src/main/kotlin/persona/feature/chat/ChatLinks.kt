@@ -208,11 +208,26 @@ data class ChatLinkContext(
         val EXTRA_ORDER = listOf("role", "author", "chat", "project", "machine", "time")
 
         private val tags = Regex("<persona-context\\b([^>]*)>([\\s\\S]*?)</persona-context>\\s*")
+
         private val attributes = Regex("([\\w-]+)=\"([^\"]*)\"")
         private fun escape(s: String) = s.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;")
         private fun unescape(s: String) = s.replace("&quot;", "\"").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
 
-        /** The contexts of a message and the message without them; the text is read as iOS reads it (entities decoded). */
+        /**
+         * [text] without its forward blocks, everything else as written (a pending start's saved first message, shown
+         * again in the new-agent form): the other blocks and what was typed stay.
+         */
+        internal fun withoutForwards(text: String): String {
+            var removed = false
+            val out = tags.replace(text) { tag ->
+                if (attributes.findAll(tag.groupValues[1]).any { it.groupValues[1] == "kind" && it.groupValues[2] == FORWARD }) {
+                    removed = true
+                    ""
+                } else tag.value
+            }
+            return if (removed) out.trim('\n') else out
+        }
+
         internal fun parse(text: String): Pair<List<ChatLinkContext>, String> {
             val refs = tags.findAll(text).map { tag ->
                 val attrs = attributes.findAll(tag.groupValues[1]).associate { it.groupValues[1] to unescape(it.groupValues[2]) }
