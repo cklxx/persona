@@ -158,7 +158,7 @@ export function BackgroundCommandDetail({ mid, sid, cwd, task, running, focus, o
               <code id={commandId} data-command-full className={cx("min-w-0 flex-1 font-mono whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-ink", fullCommand ? "max-h-48 overflow-y-auto" : "line-clamp-3")}>{task.command}</code>
               <IconButton className="-mt-1 shrink-0" icon="copy" label={t("chat-activity.copy_command")} size={20} iconSize={12} onClick={() => { if (scopeCurrent()) void copyText(task.command!); }} />
             </div>
-            <Button tone="quiet" size="sm" className="-ml-2" expanded={fullCommand} aria-controls={commandId} onClick={() => setFullCommand(value => !value)}>
+            <Button tone="quiet" size="sm" className="touch-hit -ml-2" expanded={fullCommand} aria-controls={commandId} onClick={() => setFullCommand(value => !value)}>
               {t(fullCommand ? "chat-activity.command_show_less" : "chat-activity.command_show_more")}
             </Button>
           </dd>

@@ -239,6 +239,7 @@ it("expands the full command and labels the output lines actually read", async (
   expect(host.querySelector("[data-command-lines]")?.textContent).toBe("lines:2");
   const more = button("chat-activity.command_show_more");
   expect(more.getAttribute("aria-expanded")).toBe("false"); expect(more.getAttribute("aria-controls")).toBe(full.id);
+  expect(more.className).toContain("touch-hit");
   act(() => more.click());
   expect(full.className).not.toContain("line-clamp-3");
   expect(full.className).toContain("max-h-48"); expect(full.className).toContain("overflow-y-auto");
