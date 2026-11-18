@@ -638,8 +638,10 @@ fun AssistantScreen(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                // Nothing reached the outbox: the forward this send carried stays over the composer, to go again.
-                if (!accepted && forwards.isNotEmpty()) persona.feature.chat.ForwardPlacements.home =
+                // Nothing reached the outbox: the forward this send carried stays over the composer, to go again. A new
+                // conversation's failed bubble already owns it (it was taken off the composer above), and putting it
+                // back would send it twice: once from the bubble's Resend, once with the next message.
+                if (!accepted && !startsOne && forwards.isNotEmpty()) persona.feature.chat.ForwardPlacements.home =
                     restoreForwards(forwards, persona.feature.chat.ForwardPlacements.home)
                 if (startsOne) failed(persona.core.designsystem.operationFeedback(error).text.resolve(resources))
                 else if (feedback?.failure(error) != true)
