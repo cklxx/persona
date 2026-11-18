@@ -152,12 +152,18 @@ private fun PersonaRootContent(
                             if (route.key == PairingRoute || route.key is SettingsPageRoute) openNavigation.value = null
                         }
                     }
-                    // Keep the pairing state in memory while diagnostics is open.
-                    PairingScreen(services.pairing, services.sessions, initialLink = link,
+                    // Keep the pairing state in memory while diagnostics is open. A pairing link that arrives while a
+                    // hub is already paired adds that hub next to it (the hub list's "Add hub"), it does not replace
+                    // what is paired: a link can be opened by anything, and replacing loses the existing hub's data.
+                    val adding = link != null && hub != null
+                    PairingScreen((if (adding) services.addHub else null) ?: services.pairing, services.sessions, initialLink = link,
                         onReady = { MainActivity.pendingPairLink.value = null; entering = false; onPaired() },
                         onBack = if (link != null && hub != null) ({ MainActivity.pendingPairLink.value = null }) else null,
                         onDiagnostics = { diagnostics = true }, diagnostics = services.diagnostics,
-                        onCredentialsSaved = { MainActivity.pendingPairLink.value = null }, machines = services.machines,
+                        // Adding keeps the link until the flow reports ready: clearing it here removes this screen
+                        // while its coroutine is between saving and nextStep(), which then never records the pairing
+                        // as finished. A first pairing replaces the shell, so the link goes now (as before).
+                        onCredentialsSaved = { if (!adding) MainActivity.pendingPairLink.value = null }, machines = services.machines,
                         attempts = services.pairingAttempts, mainReadiness = services.readiness,
                         footer = {
                             if (hub == null) JTextButton(stringResource(R.string.app_try_demo), onClick = { scope.launch {
