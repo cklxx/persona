@@ -39,7 +39,7 @@ func (n *Node) claudeAuthStatus(ctx context.Context, name string) (proto.ClaudeA
 
 // claudeAuthStatusProfile checks the exact profile a new conversation selected, not the machine's default login.
 func (n *Node) claudeAuthStatusProfile(ctx context.Context, name, selected string) (proto.ClaudeAuthStatus, error) {
-	return n.claudeAuthStatusCommand(ctx, name, n.launcherCommandIn(name, n.assistantConfigDir(name, selected), shellQuote))
+	return n.claudeAuthStatusCommand(ctx, name, n.launcherCommandIn(name, n.assistantConfigDir(name, selected), scriptPath))
 }
 
 func (n *Node) claudeAuthStatusCommand(ctx context.Context, name, command string) (proto.ClaudeAuthStatus, error) {
