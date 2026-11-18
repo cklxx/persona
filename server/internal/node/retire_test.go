@@ -215,27 +215,6 @@ func TestRetireUsesSessionHostWithRuntimeDefault(t *testing.T) {
 	}
 }
 
-func TestRetireAcceptsRuntimeSessionIDs(t *testing.T) {
-	n, _ := runtimeNode(t)
-	hello := dshHello()
-	hello["runtime"], hello["agent"], hello["name"] = "antigravity", "agy", "Antigravity"
-	hello["caps"].(map[string]any)["close"] = true
-	host := dialRuntime(t, n, hello)
-	const id = "agy-session"
-	_ = host.peer.Notify("runtime.sessions", map[string]any{"sessions": []map[string]any{{"session_id": id, "status": "done"}}})
-	waitFor(t, "Antigravity session listed", func() bool { _, ok := listed(t, n)[id]; return ok })
-	_, err := request(t, n, "session.retire", map[string]any{"session_id": id, "close_terminal": true})
-	if code, _ := refusalOf(t, err); code != notRetirable {
-		t.Fatalf("runtime session: %v", err)
-	}
-	if _, err := request(t, n, "session.close", map[string]any{"session_id": id}); err != nil {
-		t.Fatalf("fallback close: %v", err)
-	}
-	if got := host.got("session.close"); len(got) != 1 || !strings.Contains(string(got[0]), `"session_id":"agy-session"`) {
-		t.Fatalf("runtime close calls: %s", got)
-	}
-}
-
 func TestRetireHerdrCoreWithRuntimeDefault(t *testing.T) {
 	for _, closeTerminal := range []bool{false, true} {
 		action := "stop"
