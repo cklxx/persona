@@ -93,7 +93,7 @@ func (n *Node) stopWithCause(ctx context.Context, id string, retire bool, cause 
 // stoppable checks that session id's agent may be stopped now (retire: only a still one) and holds its typing lock
 // (unlock releases it) when ok; ok false with no error when it is not running.
 func (n *Node) stoppable(id string, retire bool) (unlock func(), a host.Agent, ok bool, err error) {
-	if !validID(id) {
+	if !validID(id) && !runtimeIDRe.MatchString(id) {
 		return nil, a, false, fmt.Errorf("invalid session id %q", id)
 	}
 	no := func(code, why string) (func(), host.Agent, bool, error) {
