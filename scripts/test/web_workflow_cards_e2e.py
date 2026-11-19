@@ -346,6 +346,23 @@ def run(browser, base, hub, token, size, theme, shots, reduce):
         expect(panel).to_have_count(0)
         expect(overview).to_be_visible()
         expect(row).to_be_focused()
+    if size == "wide":
+        # Closing the origin also closes its dependent detail. Reopening must never leave a pressed toggle over a
+        # mounted but hidden overview, or a stale detail whose Back cannot restore its origin.
+        row.click()
+        expect(overview).to_be_hidden()
+        expect(panel.locator('[data-background-detail="wffail"]')).to_have_count(1)
+        trigger.click()
+        expect(panel).to_have_count(0)
+        expect(overview).to_have_count(0)
+        expect(trigger).to_have_attribute("aria-pressed", "false")
+        shot("overview-toggle-off")
+        trigger.click()
+        expect(overview).to_be_visible()
+        expect(trigger).to_have_attribute("aria-pressed", "true")
+        expect(panel).to_have_count(0)
+        shot("overview-toggle-return")
+        ok(f"{tag}: the overview toggle closes its detail and never reopens a hidden origin")
     row.click()
     panel.locator('[data-workflow-card="failed"] [data-workflow-jump]').click()
     if size == "narrow":
@@ -416,6 +433,22 @@ def overview_large(browser, base, hub, token, size, theme, shots):
     expect(row).to_be_focused()
     expect(scroller).to_have_js_property("scrollTop", list_top)
     shot("overview-return-escape")
+    if size == "wide":
+        trigger = page.locator("[data-session-overview-trigger]")
+        row.focus()
+        page.keyboard.press("Enter")
+        expect(overview).to_be_hidden()
+        expect(panel.locator('[data-background-detail="wffail"]')).to_have_count(1)
+        trigger.click()
+        expect(panel).to_have_count(0)
+        expect(overview).to_have_count(0)
+        expect(trigger).to_have_attribute("aria-pressed", "false")
+        shot("overview-toggle-off")
+        trigger.click()
+        expect(overview).to_be_visible()
+        expect(trigger).to_have_attribute("aria-pressed", "true")
+        expect(panel).to_have_count(0)
+        shot("overview-toggle-return")
     if page.evaluate(OVERFLOW) > 0:
         fail(f"{tag}: the page scrolls sideways")
     if errors:

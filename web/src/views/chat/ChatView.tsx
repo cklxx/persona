@@ -2049,8 +2049,17 @@ function ActiveChatView({ mid, sid, assistant, starting: launching, onToggleSide
   const [overviewOpen, setOverviewOpen] = useState(false);
   const showOverview = !assistant && !embedded && Boolean(session);
   const overview = useMemo(() => showOverview
-    ? { id: overviewId, open: overviewOpen, toggle: () => setOverviewOpen((open) => !open) }
-    : undefined, [overviewId, overviewOpen, showOverview]);
+    ? {
+        id: overviewId,
+        open: overviewOpen,
+        toggle: () => {
+          setOverviewOpen((open) => !open);
+          // The detail's Back target belongs to the overview. Close the dependent detail with it, rather than leaving
+          // an origin that Back cannot restore or a later toggle that only reveals a hidden overview.
+          if (backgroundPanelOf(getPanel(), mid, sid)?.from === "overview") openPanel(null);
+        },
+      }
+    : undefined, [overviewId, overviewOpen, showOverview, mid, sid]);
   // Its background detail takes the side panel's space, rather than squeezing the mounted overview and losing its place.
   const overviewDetail = panelDrawn && backgroundPanelOf(panel, mid, sid)?.from === "overview";
 

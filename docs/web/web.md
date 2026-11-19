@@ -1573,7 +1573,7 @@ previously the terminal was a side panel to the right of the chat, and ⌘J alte
 
 ### Session overview
 
-The list button at the right of an Agent conversation's toolbar toggles **Session overview**. It opens beside the transcript when there is room and above it on narrow screens, with independent scrolling. The overview shows the current environment, available context usage, delegated agents, ongoing background work, and distinct finished background tasks reported in the loaded transcript. It starts closed and stays visible while the user works in the conversation. A background detail opened from it uses the side panel while the overview stays mounted but hidden, rather than squeezed. Back or Escape closes that detail and restores the overview's scroll position and the originating row's focus.
+The list button at the right of an Agent conversation's toolbar toggles **Session overview**. It opens beside the transcript when there is room and above it on narrow screens, with independent scrolling. The overview shows the current environment, available context usage, delegated agents, ongoing background work, and distinct finished background tasks reported in the loaded transcript. It starts closed and stays visible while the user works in the conversation. A background detail opened from it uses the side panel while the overview stays mounted but hidden, rather than squeezed. Back or Escape closes that detail and restores the overview's scroll position and the originating row's focus. Turning the overview off also closes its dependent detail; turning it back on shows the overview without a stale origin.
 
 ### Side panels
 
