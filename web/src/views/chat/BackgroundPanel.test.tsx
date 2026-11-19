@@ -178,7 +178,7 @@ describe("a background task", () => {
     function OverviewAndPanel() {
       const opened = backgroundPanelOf(usePanel(), "m", "s");
       return <>
-        <SessionOverview id="overview" session={session} machineName="Machine" items={[]} tasks={emptyTaskIndex()} children={[]} />
+        <SessionOverview id="overview" session={session} machineName="Machine" items={[]} tasks={emptyTaskIndex()} children={[]} hidden={opened?.from === "overview"} />
         {opened && <BackgroundPanel mid="m" sid="s" opened={opened} onClose={closePanel} />}
       </>;
     }
@@ -192,10 +192,13 @@ describe("a background task", () => {
     };
     await open();
     expect(getPanel()).toEqual({ kind: "background", mid: "m", sid: "s", task: "b1", from: "overview" });
+    expect(overview.hidden).toBe(true);
     const back = q('[data-background-panel] button[aria-label="返回"], [data-session-overview] button[aria-label="返回"]');
     expect(back).not.toBeNull();
+    expect(document.activeElement).toBe(back);
     act(() => back!.click());
     expect(q("[data-session-overview]")).toBe(overview);
+    expect(overview.hidden).toBe(false);
     expect(scroller.scrollTop).toBe(120);
     expect(getPanel()).toBeNull();
     expect(q("[data-background-panel]")).toBeNull();
@@ -203,6 +206,7 @@ describe("a background task", () => {
     await open();
     act(() => q("[data-background-panel] header button")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
     expect(q("[data-session-overview]")).toBe(overview);
+    expect(overview.hidden).toBe(false);
     expect(scroller.scrollTop).toBe(120);
     expect(getPanel()).toBeNull();
     expect(q("[data-background-panel]")).toBeNull();
@@ -516,6 +520,39 @@ describe("a run's detail", () => {
     expect(q('[data-background-detail="w2"]')).not.toBeNull();
     draw({ kind: "background", mid: "m", sid: "s" });
     expect(q("[data-background-list]")).not.toBeNull();
+  });
+
+  it("clears an overview detail's origin when its run disappears, so the next detail returns to the list", async () => {
+    put({ workflows: [run("w1"), run("w2")] });
+    const session = getSession("m", "s")!;
+    function OverviewAndPanel() {
+      const opened = backgroundPanelOf(usePanel(), "m", "s");
+      return <>
+        <SessionOverview id="overview" session={session} machineName="Machine" items={[]} tasks={emptyTaskIndex()} children={[]} hidden={opened?.from === "overview"} />
+        {opened && <BackgroundPanel mid="m" sid="s" opened={opened} onClose={closePanel} />}
+      </>;
+    }
+    act(() => root.render(<OverviewAndPanel />));
+    act(() => openPanel({ kind: "background", mid: "m", sid: "s", run: "w1", from: "overview" }));
+    await flush();
+    const overview = q("[data-session-overview]")!;
+    expect(overview.hidden).toBe(true);
+    expect(document.activeElement).toBe(q('[data-background-detail="w1"] button[aria-label="返回"]'));
+
+    put({ workflows: [run("w2")] });
+    await flush();
+    const listed = { kind: "background", mid: "m", sid: "s" } as const;
+    expect(getPanel()).toEqual(listed);
+    expect(overview.hidden).toBe(false);
+    expect(q("[data-background-list]")).not.toBeNull();
+
+    act(() => q('[data-background-panel] [data-bg-run="w2"] [data-bg-row-button]')!.click());
+    await flush();
+    expect(q('[data-background-detail="w2"]')).not.toBeNull();
+    act(() => q('[data-background-detail="w2"] button[aria-label="返回"]')!.click());
+    expect(q("[data-background-list]")).not.toBeNull();
+    expect(q("[data-background-panel]")).not.toBeNull();
+    expect(getPanel()).toEqual(listed);
   });
 
   it("falls back to the list when the run is gone from the session", () => {

@@ -80,8 +80,9 @@ export function openPanel(p: Panel | null) {
   if (p?.kind === "agent") p = { ...p, sid: followSubagentLink(p.mid, p.sid) };
   // what had the focus when the panel opened (its header button): closing gives the focus back to it (#5155). Called
   // from the click, before the panel renders, so it is never something inside the panel; a panel replacing another keeps
-  // the first one's.
-  if (!current && p) opener = typeof document === "undefined" ? null : document.activeElement;
+  // the first one's, except an overview detail, which returns to the overview row that opened it.
+  if (p && (!current || (p.kind === "background" && p.from === "overview")))
+    opener = typeof document === "undefined" ? null : document.activeElement;
   current = p;
   listeners.forEach((l) => l());
 }
