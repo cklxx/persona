@@ -9,6 +9,7 @@ import { attentionReason, externalLink, failureReason, isStoppedAgent, resumeCom
 import { conversationPage } from "../../lib/conversation-page";
 import { navigate, type SessionView } from "../../lib/router";
 import { canShowTerminal, composerSlot, otherView, terminalJump, terminalWaits, useSessionView, viewOnlyRow } from "../../lib/session-view";
+import { invalidateOverviewPanel } from "../../lib/use-shortcuts";
 import { resumeInTerminal, terminalResume } from "../../lib/agent-resume";
 import { openLink } from "../../lib/links";
 import { getPanel, openPanel, togglePanel, usePanel } from "../../lib/panel";
@@ -2060,18 +2061,15 @@ function ActiveChatView({ mid, sid, assistant, starting: launching, onToggleSide
   const overviewId = useId();
   const [overviewOpen, setOverviewOpen] = useState(false);
   const showOverview = !assistant && !embedded && Boolean(session);
+  useEffect(() => {
+    if (!showOverview || !overviewOpen) return;
+    // The origin owns both the visible dependent detail and the one Cmd+B remembers. Its closure, including leaving
+    // this conversation, invalidates both; while it stays open, Cmd+B can close and restore the detail as usual.
+    return () => invalidateOverviewPanel(mid, sid);
+  }, [showOverview, overviewOpen, mid, sid]);
   const overview = useMemo(() => showOverview
-    ? {
-        id: overviewId,
-        open: overviewOpen,
-        toggle: () => {
-          setOverviewOpen((open) => !open);
-          // The detail's Back target belongs to the overview. Close the dependent detail with it, rather than leaving
-          // an origin that Back cannot restore or a later toggle that only reveals a hidden overview.
-          if (backgroundPanelOf(getPanel(), mid, sid)?.from === "overview") openPanel(null);
-        },
-      }
-    : undefined, [overviewId, overviewOpen, showOverview, mid, sid]);
+    ? { id: overviewId, open: overviewOpen, toggle: () => setOverviewOpen((open) => !open) }
+    : undefined, [overviewId, overviewOpen, showOverview]);
   // Its background detail takes the side panel's space, rather than squeezing the mounted overview and losing its place.
   const overviewDetail = panelDrawn && backgroundPanelOf(panel, mid, sid)?.from === "overview";
 

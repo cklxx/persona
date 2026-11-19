@@ -116,6 +116,44 @@ def close_panel(page):
     expect(page.locator('aside[aria-label="后台任务"]')).to_have_count(0)
 
 
+def mod_b(page):
+    page.keyboard.press(("Meta" if sys.platform == "darwin" else "Control") + "+b")
+
+
+def check_overview_shortcut_memory(page, trigger, overview, row, panel, shot):
+    """Cmd+B restores a detail only while its overview origin survives; invalid memory falls back to ordinary Files."""
+    row.click()
+    expect(overview).to_be_hidden()
+    expect(panel.locator('[data-background-detail="wffail"]')).to_have_count(1)
+    mod_b(page)
+    expect(panel).to_have_count(0)
+    expect(overview).to_be_visible()
+    expect(row).to_be_focused()
+    mod_b(page)
+    expect(panel.locator('[data-background-detail="wffail"]')).to_have_count(1)
+    expect(overview).to_be_hidden()
+    expect(panel.get_by_role("button", name="返回")).to_be_focused()
+
+    # The exact regression: remember the detail with Cmd+B, remove its origin, then ask Cmd+B to reopen it.
+    mod_b(page)
+    expect(panel).to_have_count(0)
+    expect(overview).to_be_visible()
+    trigger.click()
+    expect(overview).to_have_count(0)
+    expect(trigger).to_have_attribute("aria-pressed", "false")
+    mod_b(page)
+    files = page.locator('aside[aria-label="文件"]')
+    expect(files).to_have_count(1)
+    expect(panel).to_have_count(0)
+    expect(overview).to_have_count(0)
+    shot("overview-shortcut-origin-off")
+    files.get_by_role("button", name="关闭面板").click()
+    expect(files).to_have_count(0)
+    trigger.click()
+    expect(overview).to_be_visible()
+    expect(panel).to_have_count(0)
+
+
 def run(browser, base, hub, token, size, theme, shots, reduce):
     tag = f"{size}/{theme}{'/reduced' if reduce else ''}"
     step(hub, 0)
@@ -362,7 +400,8 @@ def run(browser, base, hub, token, size, theme, shots, reduce):
         expect(trigger).to_have_attribute("aria-pressed", "true")
         expect(panel).to_have_count(0)
         shot("overview-toggle-return")
-        ok(f"{tag}: the overview toggle closes its detail and never reopens a hidden origin")
+        check_overview_shortcut_memory(page, trigger, overview, row, panel, shot)
+        ok(f"{tag}: the overview toggle and Cmd+B never restore a detail without its origin")
     row.click()
     panel.locator('[data-workflow-card="failed"] [data-workflow-jump]').click()
     if size == "narrow":
@@ -449,6 +488,7 @@ def overview_large(browser, base, hub, token, size, theme, shots):
         expect(trigger).to_have_attribute("aria-pressed", "true")
         expect(panel).to_have_count(0)
         shot("overview-toggle-return")
+        check_overview_shortcut_memory(page, trigger, overview, row, panel, shot)
     if page.evaluate(OVERFLOW) > 0:
         fail(f"{tag}: the page scrolls sideways")
     if errors:
