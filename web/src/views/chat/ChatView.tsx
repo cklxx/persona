@@ -12,7 +12,7 @@ import { canShowTerminal, composerSlot, otherView, terminalJump, terminalWaits, 
 import { resumeInTerminal, terminalResume } from "../../lib/agent-resume";
 import { openLink } from "../../lib/links";
 import { getPanel, openPanel, togglePanel, usePanel } from "../../lib/panel";
-import { isWorkflowsCommand, latestWorkflowRun, openBackgroundPanel, provideBackgroundChat, WORKFLOWS_COMMAND } from "../../lib/background-panel";
+import { backgroundPanelOf, isWorkflowsCommand, latestWorkflowRun, openBackgroundPanel, provideBackgroundChat, WORKFLOWS_COMMAND } from "../../lib/background-panel";
 import { machineWithHub } from "../../lib/mesh";
 import { sidebarRail, sidebarShown, useLayout } from "../../lib/layout";
 import { hasModes, isMuted, listedModesOf, toggleMute } from "../../lib/session-actions";
@@ -2051,6 +2051,8 @@ function ActiveChatView({ mid, sid, assistant, starting: launching, onToggleSide
   const overview = useMemo(() => showOverview
     ? { id: overviewId, open: overviewOpen, toggle: () => setOverviewOpen((open) => !open) }
     : undefined, [overviewId, overviewOpen, showOverview]);
+  // Its background detail takes the side panel's space, rather than squeezing the mounted overview and losing its place.
+  const overviewDetail = panelDrawn && backgroundPanelOf(panel, mid, sid)?.from === "overview";
 
   const page = (
     <div className="@container/session flex h-full min-w-0 flex-col">
@@ -2372,7 +2374,7 @@ function ActiveChatView({ mid, sid, assistant, starting: launching, onToggleSide
         <PageBoundary page={`overview:${mid}/${sid}`}>
           <Suspense fallback={<div className="p-3"><Loading /></div>}>
             <SessionOverview id={overviewId} session={session} machineName={machineName} items={tr.items} tasks={tasks}
-              children={kids.rows} onJumpToCall={jump} />
+              children={kids.rows} onJumpToCall={jump} hidden={overviewDetail} />
           </Suspense>
         </PageBoundary>
       )}

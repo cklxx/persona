@@ -304,21 +304,42 @@ def run(browser, base, hub, token, size, theme, shots, reduce):
     shot("completed-page")
     ok(f"{tag}: completed in place: 已完成, 11/11 Agent, 11 squares done, the time it took")
 
-    # The overview lists the runs. Opening a detail or jumping to its call keeps the overview open.
+    # The overview stays mounted while its detail takes the side panel. Back and Escape restore its scroll and row focus.
     trigger = page.locator("[data-session-overview-trigger]")
     trigger.click()
     overview = page.locator("[data-session-overview]")
     expect(overview.locator("[data-bg-run]")).to_have_count(4)
+    scroller = overview.locator(":scope > div.overflow-y-auto")
+    scroller.evaluate("(e) => { e.scrollTop = e.scrollHeight; }")
+    list_top = scroller.evaluate("(e) => e.scrollTop")
     shot("overview")
-    overview.locator('[data-bg-run="wffail"] [data-bg-row-button]').click()
+    row = overview.locator('[data-bg-run="wffail"] [data-bg-row-button]')
     panel = page.locator('aside[aria-label="后台任务"]')
-    expect(panel.locator('[data-workflow-card="failed"]')).to_contain_text("2 agents failed")
+    for way in ("Back", "Escape"):
+        row.click()
+        expect(overview).to_be_hidden()
+        expect(panel.locator('[data-workflow-card="failed"]')).to_contain_text("2 agents failed")
+        page.wait_for_timeout(300)  # let the side panel's entry animation finish before the capture
+        shot(f"overview-detail-{way.lower()}")
+        if way == "Back":
+            panel.get_by_role("button", name="返回").click()
+        else:
+            panel.locator("header button").first.press("Escape")
+        expect(panel).to_have_count(0)
+        expect(overview).to_be_visible()
+        expect(row).to_be_focused()
+        expect(scroller).to_have_js_property("scrollTop", list_top)
+        shot(f"overview-return-{way.lower()}")
+    row.click()
     panel.locator('[data-workflow-card="failed"] [data-workflow-jump]').click()
     if size == "narrow":
         expect(panel).to_have_count(0)  # it covered the chat
-    expect(overview).to_be_visible()
+        expect(overview).to_be_visible()
+    else:
+        expect(overview).to_be_hidden()
+    expect(trigger).to_have_attribute("aria-pressed", "true")
     expect(main.locator('[data-tool-use="toolu_wf_failed"]')).to_be_in_viewport()
-    ok(f"{tag}: the overview stays open and the workflow detail can jump to its call")
+    ok(f"{tag}: an overview detail returns on Back and Escape with its scroll and row focus, and can jump to its call")
 
     if size == "wide":
         # the sidebar's row for this agent, where the sidebar lists agents (its default now lists pages only)

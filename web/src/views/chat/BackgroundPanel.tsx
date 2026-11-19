@@ -113,6 +113,7 @@ export function BackgroundPanel({ mid, sid, opened, onClose }: { mid: string; si
   const rememberList = () => { listTop.current = list.current?.querySelector<HTMLElement>("[data-background-list]")?.scrollTop ?? 0; };
   const goBack = () => {
     if (!shown) return;
+    if (opened.from === "overview") { onClose(); return; }
     back.current = { kind: shown.kind, id: shown.kind === "run" ? shown.id : shown.task.id, top: listTop.current };
     setShown(null);
     openPanel({ kind: "background", mid, sid });
