@@ -93,18 +93,18 @@ describe("groups from the hub's catalog", () => {
 });
 
 describe("groups from a counts read", () => {
-  it("lists computers the busiest first, each by its own filter", () => {
+  it("lists computers in a fixed name order, each by its own filter and current counts", () => {
     const groups = countGroups(counts({ machine: { mac: 4, pc: 7, nas: 4, "": 2, gone: 0 } }), "machine", { needs: counts({ machine: { pc: 2 } }) });
-    expect(groups.map((g) => [g.key, g.count, g.needs])).toEqual([["pc", 7, 2], ["mac", 4, 0], ["nas", 4, 0]]);
-    expect(groups[0].filters).toEqual({ machine_id: "pc" });
+    expect(groups.map((g) => [g.key, g.count, g.needs])).toEqual([["mac", 4, 0], ["nas", 4, 0], ["pc", 7, 2]]);
+    expect(groups[0].filters).toEqual({ machine_id: "mac" });
     expect(groups[0].members).toBeUndefined();
-    expect(holdsPlace(groups[0], "machine", { machine: "pc", project: "/x", group: "" })).toBe(true);
+    expect(holdsPlace(groups[0], "machine", { machine: "mac", project: "/x", group: "" })).toBe(true);
   });
 
   it("names a project by its folder and keeps its path, a Windows path by its own separator", () => {
     const groups = countGroups(counts({ project: { "/work/alpha": 2, "C:\\work\\Beta": 5, solo: 1 } }), "project");
     expect(groups.map((g) => [g.name, g.places.map((p) => p.path), g.filters])).toEqual([
-      ["Beta", ["C:\\work\\Beta"], { project: "C:\\work\\Beta" }], ["alpha", ["/work/alpha"], { project: "/work/alpha" }], ["solo", [], { project: "solo" }],
+      ["alpha", ["/work/alpha"], { project: "/work/alpha" }], ["Beta", ["C:\\work\\Beta"], { project: "C:\\work\\Beta" }], ["solo", [], { project: "solo" }],
     ]);
   });
 

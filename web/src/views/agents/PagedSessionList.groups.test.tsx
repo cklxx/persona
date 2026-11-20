@@ -165,24 +165,24 @@ describe("the sections' own chunk", () => {
 });
 
 describe("the list by computer", () => {
-  it("draws one section per computer, the busiest first: the first three open on their sessions, the rest folded and unread", async () => {
+  it("draws one section per computer in a fixed order: the first three open on their sessions, the rest folded and unread", async () => {
     await show();
     vi.mocked(api).mockClear();
     await browseBy("machine");
-    expect(sections().map(summary)).toEqual(["MacBook 1 3", "Windows PC 2", "Lab 1", "NAS 1"]); // name, needs you, count
+    expect(sections().map(summary)).toEqual(["Lab 1", "MacBook 1 3", "NAS 1", "Windows PC 2"]); // name, needs you, count
     expect(sections().map((s) => heading(s).getAttribute("aria-expanded"))).toEqual(["true", "true", "true", "false"]);
-    expect(sections().map(rowsIn)).toEqual([["a1", "a2", "a3"], ["b1", "b2"], ["d1"], []]);
+    expect(sections().map(rowsIn)).toEqual([["d1"], ["a1", "a2", "a3"], ["c1"], []]);
     expect(sections()[1].querySelector("[data-row]")!.getAttribute("data-within")).toBe("machine");
     expect(host.querySelector("[data-virtual-sessions]")).toBeNull();
     expect(host.querySelector("[data-session-total]")!.textContent).toBe(t("paged-agents.count", { count: 7 }));
     // one page for each open section, none for the folded one; and a section reads rows, never counts: its number is
     // on its heading already
-    expect(reads("page").map((path) => params(path).get("machine_id")).sort()).toEqual(["lab", "mac", "pc"]);
+    expect(reads("page").map((path) => params(path).get("machine_id")).sort()).toEqual(["lab", "mac", "nas"]);
     expect(reads("counts").every((path) => !params(path).has("machine_id"))).toBe(true);
 
     await toggle(sections()[3]);
-    expect(rowsIn(sections()[3])).toEqual(["c1"]);
-    expect(Object.fromEntries(params(reads("page").at(-1)!))).toEqual({ machine_id: "nas", summary: "1", limit: "50" });
+    expect(rowsIn(sections()[3])).toEqual(["b1", "b2"]);
+    expect(Object.fromEntries(params(reads("page").at(-1)!))).toEqual({ machine_id: "pc", summary: "1", limit: "50" });
   });
 
   it("stops reading a section once it is folded, and keeps it folded", async () => {
@@ -195,8 +195,8 @@ describe("the list by computer", () => {
     expect(rowsIn(sections()[0])).toEqual([]);
     vi.mocked(api).mockClear();
     await hint();
-    expect(reads("page").some((path) => params(path).get("machine_id") === "mac")).toBe(false);
-    expect(reads("page").some((path) => params(path).get("machine_id") === "pc")).toBe(true);
+    expect(reads("page").some((path) => params(path).get("machine_id") === "lab")).toBe(false);
+    expect(reads("page").some((path) => params(path).get("machine_id") === "mac")).toBe(true);
     // what someone folded stays folded the next time the list is drawn
     act(() => root.unmount());
     root = createRoot(host);
@@ -216,7 +216,7 @@ describe("the list by computer", () => {
     });
     await show();
     await browseBy("machine");
-    const mac = () => sections()[0];
+    const mac = () => sections().find((s) => s.getAttribute("data-session-group") === "mac")!;
     const more = () => [...mac().querySelectorAll("button")].find((b) => b.textContent === t("paged-agents.more"))!;
     // the sidebar's quiet line under a list's rows, not a button pill (#6662)
     expect(more().className).toContain("text-ink-3");
@@ -245,10 +245,10 @@ describe("the list by computer", () => {
   });
 
   it("opens by itself the section the open conversation is in", async () => {
-    await show({ open: "c1" });
+    await show({ open: "b1" });
     await browseBy("machine");
     expect(sections().map((s) => heading(s).getAttribute("aria-expanded"))).toEqual(["true", "true", "true", "true"]);
-    expect(rowsIn(sections()[3])).toEqual(["c1"]);
+    expect(rowsIn(sections()[3])).toEqual(["b1", "b2"]);
   });
 
   it("opens the section of an open conversation on a later page", async () => {
@@ -268,11 +268,47 @@ describe("the list by computer", () => {
           : { sessions: rows.slice(0, 50), remove: [], has_more: true, next_cursor: "second", total: rows.length, revision: "r" };
       return Promise.resolve(answer) as ReturnType<typeof api>;
     });
-    await show({ open: "c1" });
+    await show({ open: "b1" });
     await browseBy("machine");
     expect(sections().map((s) => heading(s).getAttribute("aria-expanded"))).toEqual(["true", "true", "true", "true"]);
-    expect(rowsIn(sections()[3])).toEqual(["c1"]);
+    expect(rowsIn(sections()[3])).toEqual(["b1", "b2"]);
     expect(reads("page").filter((path) => params(path).get("cursor") === "second")).toHaveLength(1);
+  });
+});
+
+describe("stable presentation over paged transport (#11801)", () => {
+  it("sorts the loaded prefix before the preview, preserving its rows through refreshes and Load more", async () => {
+    type Ranked = Row & { rank: number; place: number };
+    let many: Ranked[] = Array.from({ length: 9 }, (_, i) => ({ ...row(`r${i}`, "mac", "/big"), rank: i, place: i }));
+    vi.mocked(api).mockImplementation((path) => {
+      const q = params(path as string);
+      const answer = q.has("counts") ? countsOf(many) : { sessions: many, remove: [], has_more: false, total: many.length, revision: "r" };
+      return Promise.resolve(answer) as ReturnType<typeof api>;
+    });
+    const identity = (r: Ranked) => r.id;
+    const transport = (a: Ranked, b: Ranked) => b.rank - a.rank || a.id.localeCompare(b.id);
+    const stable = (a: Ranked, b: Ranked) => a.place - b.place;
+    const rankedList = new SessionList<Ranked>("/sessions", identity, transport);
+    await rankedList.load();
+    await act(async () => root.render(<PagedSessionList root={rankedList} path="/sessions" identity={identity} compare={transport} event="sessions_list"
+      grouping={{ dimension: "machine", bar: null, label: "Machine", rowOrder: stable }}
+      placeOf={(r) => ({ machine: r.machine, project: r.project, group: r.group })}
+      renderRow={(r) => <span data-row={r.id}>{r.id}</span>} />));
+    await settle();
+    const shown = () => [...host.querySelectorAll<HTMLElement>("[data-session-row]")].map((el) => el.textContent);
+    expect(shown()).toEqual(["r0", "r1", "r2", "r3", "r4", "r5"]);
+
+    // The last row in herdr order becomes the first in transport order. The preview must not gain or lose a row.
+    many = many.map((r) => r.id === "r0" ? { ...r, rank: 100 } : r);
+    await act(async () => {
+      hubHint();
+      await rankedList.load();
+      await vi.advanceTimersByTimeAsync(2_100);
+    });
+    expect(shown()).toEqual(["r0", "r1", "r2", "r3", "r4", "r5"]);
+    await act(async () => [...host.querySelectorAll("button")].find((b) => b.textContent === t("paged-agents.more"))!.click());
+    await settle();
+    expect(shown()).toEqual(["r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8"]);
   });
 });
 
@@ -294,7 +330,7 @@ describe("a list by group whose first read fails", () => {
     await act(async () => retry.click());
     await settle();
     expect(host.querySelector('[role="alert"]')).toBeNull();
-    expect(sections().map(summary)).toEqual(["MacBook 1 3", "Windows PC 2", "Lab 1", "NAS 1"]);
+    expect(sections().map(summary)).toEqual(["Lab 1", "MacBook 1 3", "NAS 1", "Windows PC 2"]);
   });
 });
 
@@ -390,7 +426,7 @@ describe("the list by project, on a hub with the catalog", () => {
     await act(async () => setShown(true));
     await settle();
     // each open section reads once, the groups once; the folded section still reads nothing
-    expect(reads("page").map((path) => params(path).get("machine_id")).sort()).toEqual(["lab", "mac", "pc"]);
+    expect(reads("page").map((path) => params(path).get("machine_id")).sort()).toEqual(["lab", "mac", "nas"]);
     expect(reads("counts")).toHaveLength(1);
   });
 

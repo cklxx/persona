@@ -1,6 +1,6 @@
 // The paged list by group: one folding section for each computer, project, space or account (the sidebar's to-do and
 // state too, #6662), with how many sessions it holds and how many of them need the user on its heading. The first few
-// sections start open on their newest sessions (by to-do every to-do's, "Not on a to-do" folded; by state Just finished
+// sections start open on their sessions (by to-do every to-do's, "Not on a to-do" folded; by state Just finished
 // too, #9751);
 // a section reads its own sessions while it is open, a page at a time, and stops when it is folded, so the groups of a
 // long list cost nothing until someone looks into one.
@@ -13,7 +13,7 @@ import { SectionList } from "../../lib/section-list";
 import { groupMachines, holdsPlace, JUST_FINISHED_KEY, type GroupDimension, type SessionGroup, type SessionPlace } from "../../lib/session-groups";
 import { onShownHint } from "../../lib/shown-hints";
 import { useFolded } from "../../lib/use-folded";
-import { nestUnderParents } from "../../lib/side-sessions";
+import { nestUnderParents, orderNestedRows } from "../../lib/side-sessions";
 import { Button } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
 import { SESSION_LIST_METRICS, SESSION_LIST_STYLE } from "../../ui/list-metrics";
@@ -30,6 +30,8 @@ export interface GroupedSource<T> {
   roots: boolean;
   /** The list's own parentOf (#5935): a section draws a side session under its parent as the flat list does. */
   parentOf?: (row: T) => string | undefined;
+  /** Stable presentation order, separate from the transport's cursor order (#11801). */
+  rowOrder?: (a: T, b: T) => number;
 }
 
 export interface GroupedSessionsProps<T> {
@@ -72,7 +74,7 @@ function GroupSection<T>({ group, first, startsOpen, dimension, kind, scope, sou
   group: SessionGroup; first: boolean; startsOpen: boolean; dimension: GroupDimension; kind: string; scope: ListFilters; source: GroupedSource<T>;
   renderRow: (row: T, within: GroupDimension, group: SessionGroup) => ReactNode; name: string; machineName: (id: string) => string; several: boolean; holds: boolean; foldScope?: string;
 }) {
-  // The busiest few start open, the rest folded: an open section keeps a list of its own up to date. "Expand all"
+  // The first few start open, the rest folded: an open section keeps a list of its own up to date. "Expand all"
   // leaves them alone for the same reason (it would start one read per group), except in the sidebar, whose title row
   // folds and opens them as the complete list's groups (`foldScope`, #6662): someone asked. What is folded is kept.
   const [folded, toggle] = useFolded(`sessions-by:${kind}:${dimension}:${group.key}`, !startsOpen, { holds, all: Boolean(foldScope), scope: foldScope });
@@ -120,11 +122,11 @@ function GroupPlaces({ group, machineName }: { group: SessionGroup; machineName:
   );
 }
 
-/** An open section's sessions: the list's own rows, the newest first. A few at first, then a page at a time. */
+/** An open section's sessions: the list's own rows in presentation order. A few at first, then a page at a time. */
 function GroupRows<T>({ group, dimension, scope, source, renderRow }: {
   group: SessionGroup; dimension: GroupDimension; scope: ListFilters; source: GroupedSource<T>; renderRow: (row: T, within: GroupDimension, group: SessionGroup) => ReactNode;
 }) {
-  const { path, identity, compare, removeIdentity, event, summary, roots, parentOf } = source;
+  const { path, identity, compare, removeIdentity, event, summary, roots, parentOf, rowOrder } = source;
   // rows only: the section's numbers are the ones its heading already has. A runtime section passes over the hints that
   // name none of its rows (#9176): with several open, each read for every agent's update anywhere.
   const follows = event === "sessions_list";
@@ -152,12 +154,16 @@ function GroupRows<T>({ group, dimension, scope, source, renderRow }: {
     headingRead.current = heading;
     if (list.getSnapshot().loaded) list.invalidate();
   }, [list, heading]);
-  // the newest few first, so several open sections fit a screen; "Load more" shows what is read, then reads on
   const [limit, setLimit] = useState<number>(SESSION_LIST_METRICS.groupPreview);
-  const shown = page.rows.length > limit ? page.rows.slice(0, limit) : page.rows;
+  const preview = page.rows.length > limit ? page.rows.slice(0, limit) : page.rows;
   // a session started from another one shown here comes under it, a level in (#5935), as in the flat list
-  const nesting = useMemo(() => parentOf ? nestUnderParents(shown, identity, parentOf) : null, [shown, identity, parentOf]);
-  const rows = nesting?.rows ?? shown;
+  const sourceRows = rowOrder ? page.rows : preview;
+  const nesting = useMemo(() => parentOf ? nestUnderParents(sourceRows, identity, parentOf) : null, [sourceRows, identity, parentOf]);
+  const ordered = useMemo((): readonly T[] => rowOrder ? nesting ? orderNestedRows(nesting, rowOrder) : [...sourceRows].sort(rowOrder) : nesting?.rows ?? sourceRows,
+    [rowOrder, nesting, sourceRows]);
+  // Sort the whole loaded prefix before taking the preview: an activity update later in that prefix cannot displace
+  // one of the visible rows (#11801). "Load more" then shows what is read, then reads on.
+  const rows = rowOrder && ordered.length > limit ? ordered.slice(0, limit) : ordered;
   const more = () => {
     if (page.rows.length <= limit) void list.more().catch(() => {});
     setLimit(limit + PAGE_SIZE);

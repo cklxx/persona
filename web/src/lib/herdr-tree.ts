@@ -49,6 +49,19 @@ export function paneOrder(a: Session, b: Session): number {
   return placeOf(a) - placeOf(b) || paneNumber(a) - paneNumber(b) || a.session_id.localeCompare(b.session_id);
 }
 
+const tabPlace = (s: Session) => s.slot_index ?? Number.MAX_SAFE_INTEGER;
+const spacePlace = (s: Session) => s.space_index ?? Number.MAX_SAFE_INTEGER;
+
+/** The sidebar's stable presentation order (#11801): the hub's computers, then herdr's workspaces, tabs and panes.
+ *  Activity changes a row's state and time, never its place. The paged transport keeps its own newest-first cursor order. */
+export function machineSessionOrder(machines: readonly Machine[]): (a: Session, b: Session) => number {
+  const machinePlace = new Map(machines.map((m, i) => [m.id, i]));
+  const machine = (s: Session) => machinePlace.get(s.machine_id) ?? Number.MAX_SAFE_INTEGER;
+  return (a, b) => machine(a) - machine(b) || a.machine_id.localeCompare(b.machine_id)
+    || spacePlace(a) - spacePlace(b) || (a.space_name || a.space_id || "").localeCompare(b.space_name || b.space_id || "") || (a.space_id || "").localeCompare(b.space_id || "")
+    || tabPlace(a) - tabPlace(b) || (a.slot_id || "").localeCompare(b.slot_id || "") || paneOrder(a, b);
+}
+
 /** The tab's "Lead" (#2320): the agent in the tab's first pane (`pane_index` 0, top left, the one the others were split
  *  from). None when the tab has one agent, or that pane is a shell or not placed: the agents are then peers. */
 export function launcherOf(panes: readonly Session[]): Session | undefined {

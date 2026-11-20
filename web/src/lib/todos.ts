@@ -662,6 +662,7 @@ export function buildTodoAgentGroups(
   machines: Machine[],
   todos: Todo[],
   mutes: AgentMutes = { spaces: [], sessions: [] },
+  compareSessions?: (a: Session, b: Session) => number,
 ): AgentGroup[] {
   const { live } = splitAgentSessions(all, machines);
   const lookup = makeSessionLookup(live);
@@ -688,6 +689,12 @@ export function buildTodoAgentGroups(
   }
   const assignedSessionKeys = new Set(homeOf.keys());
   const groups: AgentGroup[] = [];
+  const byRank = compareSessions ?? ((a: Session, b: Session) => {
+    const rA = sessionRank(a, mutes);
+    const rB = sessionRank(b, mutes);
+    if (rA !== rB) return rA - rB;
+    return byDate(a, b);
+  });
 
   for (const todo of openTodos) {
     // in the todo's agents order, then the sessions on it by their own todo only
@@ -696,13 +703,8 @@ export function buildTodoAgentGroups(
     const todoSessions = keys.map((key) => liveByKey.get(key)!);
 
     if (todoSessions.length > 0) {
-      // order within a group: by status priority (pinned / needs you first, muted down), same priority by time, newest first
-      todoSessions.sort((a, b) => {
-        const rA = sessionRank(a, mutes);
-        const rB = sessionRank(b, mutes);
-        if (rA !== rB) return rA - rB;
-        return byDate(a, b);
-      });
+      // The caller's presentation order; without one, status priority then newest activity.
+      todoSessions.sort(byRank);
 
       const st = todoStatus(todo, lookup);
       groups.push({
@@ -715,12 +717,6 @@ export function buildTodoAgentGroups(
     }
   }
 
-  const byRank = (a: Session, b: Session) => {
-    const rA = sessionRank(a, mutes);
-    const rB = sessionRank(b, mutes);
-    if (rA !== rB) return rA - rB;
-    return byDate(a, b);
-  };
   // agents on no todo go last in one "Unassigned" segment, folded by default; opened by hand in a terminal or not (#6591)
   const unassigned = live.filter((s) => !assignedSessionKeys.has(`${s.machine_id}/${s.session_id}`));
   if (unassigned.length > 0) {

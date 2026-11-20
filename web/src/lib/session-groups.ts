@@ -79,6 +79,10 @@ export interface SessionGroup {
 // A key no id, path or pair can be: the group of the rows without the attribute.
 const REST_KEY = "\u0000rest";
 
+/** Physical sidebar groups have a fixed name order; sessions without a place stay last. Counts and activity only
+ *  change their badges and rows, never their position (#11801). */
+const byGroupPlace = (a: SessionGroup, b: SessionGroup) => Number(Boolean(a.rest)) - Number(Boolean(b.rest)) || a.name.localeCompare(b.name) || a.key.localeCompare(b.key);
+
 /** The projects or spaces of a hub's catalog, each with how many of its sessions need the user, as the hub counted. */
 export function catalogGroups(catalog: SessionCatalog, dimension: "project" | "group"): SessionGroup[] {
   if (dimension === "project") {
@@ -90,7 +94,7 @@ export function catalogGroups(catalog: SessionCatalog, dimension: "project" | "g
         origin: p.origin || undefined, rest: !p.id || undefined, members, filters: { place: members.slice(0, LIST_PAIRS_MAX) },
         places: p.id ? p.places.map((x) => ({ machine: x.machine_id, path: x.path, count: x.total })) : [],
       };
-    });
+    }).sort(byGroupPlace);
   }
   const groups: SessionGroup[] = [];
   // the computers' sessions in no space are one group: nobody looks for them by computer
@@ -108,26 +112,25 @@ export function catalogGroups(catalog: SessionCatalog, dimension: "project" | "g
     }
   }
   if (rest.count > 0) groups.push({ ...rest, filters: { space: rest.members!.slice(0, LIST_PAIRS_MAX) } });
-  return groups;
+  return groups.sort(byGroupPlace);
 }
 
 /** The groups of a counts read: computers on any hub, and on a hub without the catalog (or for personal agents)
- * projects by path and spaces or accounts by id. The busiest first. A computer, a space id and an account are named by
- * their key: the list has their names. `machine` narrows a space id to one computer. */
+ * projects by path and spaces or accounts by id. A computer, a space id and an account are named by their key: the
+ * list has their names. `machine` narrows a space id to one computer. */
 export function countGroups(counts: ListCounts | null, dimension: GroupDimension, o: { machine?: string; needs?: ListCounts | null; todos?: TodoNames; justFinished?: boolean } = {}): SessionGroup[] {
   // states and to-dos have orders of their own
   if (dimension === "state") return stateGroups(counts, o.justFinished ?? false);
   if (dimension === "todo") return todoGroups(counts, o.todos, o.needs?.todo ?? {});
   const waiting = o.needs?.[dimension] ?? {};
   return Object.entries(counts?.[dimension] ?? {}).filter(([key, n]) => key && n > 0)
-    .sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
     .map(([key, n]): SessionGroup => ({
       key, count: n, needs: waiting[key] ?? 0,
       name: dimension === "project" ? baseName(key) || key : key,
       places: dimension === "project" && baseName(key) !== key ? [{ machine: "", path: key, count: n }] : [],
       filters: dimension === "machine" ? { machine_id: key } : dimension === "project" ? { project: key }
         : { group: key, ...(o.machine ? { machine_id: o.machine } : {}) },
-    }));
+    })).sort(byGroupPlace);
 }
 
 /** A list by state (#6662): a section per state with sessions, in the quick filters' order. Its own number is the

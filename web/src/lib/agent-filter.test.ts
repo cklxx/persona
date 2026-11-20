@@ -96,10 +96,10 @@ describe("空间的顺序", () => {
     expect(r2.idle.map((x) => x.name)).toEqual(["a"]);
   });
 
-  it("有筛选时全部列出、最近的在前，不折叠", () => {
+  it("有筛选时全部列出、保持原有顺序，不折叠", () => {
     const r = arrangeSpaces([a, b, d, c], { pins: NO_PINS, mutes: none, filtered: true, busy });
-    // b is working since :02 (its own lines do not move it), c finished at :07, the quiet one at :08
-    expect(r.active.map((x) => x.name)).toEqual(["安静", "c", "a", "b"]);
+    // Activity still updates each row, but no longer moves its workspace (#11801).
+    expect(r.active.map((x) => x.name)).toEqual(["a", "b", "安静", "c"]);
     expect(r.idle).toEqual([]);
   });
 });

@@ -1,12 +1,12 @@
 // The sidebar's Agents groupings on a paging hub (#6662, docs/web/web.md "Paging hubs"): one bar, 待办 / 机器 / 仓库 /
 // 项目 / 状态, and the same quick filters under it, whether the list is paged or complete. By to-do is paged as a section per open to-do, open, then 没挂待办的
 // folded; By machine and By state stay paged; By repository and a pin take the complete list, under the same bar. The
-// title row's ⋯ holds the same items either way (状态优先 / 最近更新 / the archived Agents).
+// title row's ⋯ holds the archived Agents in both paths; activity no longer re-sorts either one (#11801).
 // Checked against the fake hub's own answers, with light and dark screenshots.
 //
 // Needs the web page against the fake hub with the paged list, and Chrome:
 //
-//   MOCK_SESSIONS_LIST=1 MOCK_SESSIONS_CATALOG=1 MOCK_MANAGERS=1 PORT=18793 python3 scripts/mock/mock_hub.py &
+//   MOCK_SESSIONS_LIST=1 MOCK_SESSIONS_CATALOG=1 MOCK_MANAGERS=1 MOCK_AGENT_ARCHIVES=1 PORT=18793 python3 scripts/mock/mock_hub.py &
 //   (cd web && PERSONA_HUB_URL=http://127.0.0.1:18793 npx vite --port 5293 --strictPort &)
 //   node web/e2e/agents-paged-groupings.mjs http://127.0.0.1:5293 <artifact directory> [--before] [--channel chrome]
 //
@@ -126,7 +126,7 @@ try {
     const pagedChips = await chipNames();
     check(pagedChips[0] === "全部" && pagedChips.every((name) => QUICK.includes(name)), `${theme}: the paged list's chips are the complete list's quick filters`, pagedChips.join(" / "));
     const pagedMenu = await listMenu("paged-menu");
-    check(pagedMenu[0] === "状态优先" && pagedMenu[1] === "最近更新", `${theme}: the paged list's ⋯ has the complete list's sorts`, pagedMenu.join(" / "));
+    check(pagedMenu.includes("已归档的 Agent") && !pagedMenu.includes("状态优先") && !pagedMenu.includes("最近更新"), `${theme}: the paged list's ⋯ has archives and no activity sort`, pagedMenu.join(" / "));
     const sections = () => paged.locator("[data-session-group]").evaluateAll((els) => els.map((el) => ({
       name: el.querySelector("button[aria-expanded]")?.querySelector("span")?.textContent ?? el.querySelector("button[aria-expanded]")?.textContent ?? "",
       open: el.getAttribute("data-group-open") === "true",

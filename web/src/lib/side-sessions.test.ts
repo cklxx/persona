@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nestUnderParents } from "./side-sessions";
+import { nestUnderParents, orderNestedRows } from "./side-sessions";
 
 type Row = { id: string; parent?: string };
 const r = (id: string, parent?: string): Row => ({ id, parent });
@@ -55,5 +55,12 @@ describe("nestUnderParents", () => {
     const out = nestUnderParents(rows, key, parentKey);
     expect([...ids(out.rows)].sort()).toEqual([...ids(rows)].sort());
     expect(ids(out.rows)).toEqual(["p", "s1", "s2", "y", "x", "w"]);
+  });
+
+  it("sorts top-level rows without separating side sessions from their parent (#11801)", () => {
+    const out = nestUnderParents([r("s1", "p"), r("q"), r("s2", "p"), r("p"), r("z")], key, parentKey);
+    const ordered = orderNestedRows(out, (a, b) => b.id.localeCompare(a.id));
+    expect(ids(ordered)).toEqual(["z", "q", "p", "s1", "s2"]);
+    expect(key(out.lead.get(out.rows[0])!)).toBe("s1"); // activity grouping still uses the newest member
   });
 });

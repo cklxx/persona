@@ -5,7 +5,7 @@ import { t } from "../../i18n";
 import { api, errorText } from "../../lib/api";
 import { onShownHint } from "../../lib/shown-hints";
 import { filterQuery, SessionList, type ListCounts, type ListFilters } from "../../lib/session-list";
-import { groupMachines, holdsPlace, type GroupDimension, type SessionGroup, type SessionPlace, type TodoNames } from "../../lib/session-groups";
+import { groupMachines, type GroupDimension, type SessionGroup, type SessionPlace, type TodoNames } from "../../lib/session-groups";
 import { SESSION_LIST_METRICS, SESSION_LIST_STYLE } from "../../ui/list-metrics";
 import { SearchField } from "../../ui/SearchField";
 import { STATE_LABEL } from "../../lib/state-labels";
@@ -20,7 +20,7 @@ import { shortPath } from "../../lib/format";
 import { removeStoredValue, storedValue, storeValue } from "../../lib/compatibility";
 import { ACTIVE_WINDOWS, activeWindow, splitByActivity, windowStart, type ActiveWindow } from "../../lib/session-activity";
 import { useFolded } from "../../lib/use-folded";
-import { nestUnderParents } from "../../lib/side-sessions";
+import { nestUnderParents, orderNestedRows } from "../../lib/side-sessions";
 import { sameValue } from "../../lib/stable-lines";
 import { lazyPage } from "../../lib/lazy-page";
 import { NeedsCount, ShowMoreRow } from "../SidebarSection";
@@ -65,16 +65,17 @@ export interface PagedSessionListProps<T> {
    *  lists show the same control; this list draws that bar first, then the state chips and what ⌘K put on it, as the
    *  complete list does, with no value pill or search field of its own. A search lists its matches flat. `label` names
    *  the dimension. */
-  grouping?: PagedGrouping;
+  grouping?: PagedGrouping<T>;
   /** The words a failed read of the list's rows or groups is said in, given its reason (the reason alone by default): the
    *  sidebar's says it could not read the Agents list, as its complete list does. */
   failureText?: (reason: string) => string;
 }
 
-export interface PagedGrouping {
+export interface PagedGrouping<T> {
   dimension: GroupDimension; bar: ReactNode; label: string; todos?: TodoNames; quick?: PagedQuickFilters;
   /** The sections follow this scope's fold-all (useFolded). */ foldScope?: string;
-  /** "Recently updated" (the title row's ⋯): the computers' and projects' sections by their newest session. */ byUpdate?: boolean;
+  /** Stable presentation order. The transport still uses `compare`, whose newest-first order binds the hub's cursors. */
+  rowOrder?: (a: T, b: T) => number;
   /** The words ⌘K's "Filter Agents list" put on the list (#6589), sent as the search: the sidebar's list has no field of
    *  its own, `chips` says what narrows it where the field was. */
   query?: string; chips?: ReactNode;
@@ -259,20 +260,7 @@ export function PagedSessionList<T>({ root, path, identity, compare, removeIdent
     else void root.retry().catch(() => {});
   }, [facetScoped, root]);
   const grouped = useSessionGroups({ dimension, catalog: cataloged, countsPath, scope: groupScope, facets, facetQuery, facetsError: facetsFailure, retryFacets, waiting: sections ? scopeNeeds : 0, event, todos: grouping?.todos, justFinished });
-  // "Recently updated" as the complete list orders its computers and spaces (lib/agent-sort.ts): by their newest session,
-  // as far as the root's newest page tells (the hub reads no group's time); the ones it has none of keep their order
-  // after them, and the sessions on no space stay last. Its to-dos keep the To-dos page's order there too.
-  const byUpdate = Boolean(grouping?.byUpdate) && (dimension === "machine" || dimension === "group");
-  const allGroups = useMemo(() => {
-    if (!byUpdate || !grouped.groups || !placeOf) return grouped.groups;
-    const places = rootPage.rows.map(placeOf);
-    const rank = (g: SessionGroup) => {
-      if (g.rest) return places.length + 1;
-      const at = places.findIndex((p) => holdsPlace(g, dimension as GroupDimension, p));
-      return at < 0 ? places.length : at;
-    };
-    return grouped.groups.map((g) => ({ g, at: rank(g) })).sort((a, b) => a.at - b.at).map(({ g }) => g);
-  }, [byUpdate, grouped.groups, placeOf, rootPage.rows, dimension]);
+  const allGroups = grouped.groups;
   // the picked group follows what the hub says of it now (a project gains a directory); gone from the scope, it stays picked
   useEffect(() => {
     if (!picked || !allGroups) return;
@@ -284,6 +272,11 @@ export function PagedSessionList<T>({ root, path, identity, compare, removeIdent
   // recent member was. Only the order changes: the rows, the total and every count stay the server's.
   const nesting = useMemo(() => parentOf ? nestUnderParents(page.rows, identity, parentOf) : null, [page.rows, identity, parentOf]);
   const rows = nesting?.rows ?? page.rows;
+  const rowOrder = grouping?.rowOrder;
+  const orderedRows = useMemo((): readonly T[] => {
+    if (!rowOrder) return rows;
+    return nesting ? orderNestedRows(nesting, rowOrder) : [...rows].sort(rowOrder);
+  }, [rows, nesting, rowOrder]);
   // a group is as recent as its most recent member, so Earlier never splits one
   const groupActiveAt = useMemo(() => activeAt && nesting ? (row: T) => activeAt(nesting.lead.get(row) ?? row) : activeAt, [activeAt, nesting]);
 
@@ -303,15 +296,21 @@ export function PagedSessionList<T>({ root, path, identity, compare, removeIdent
     ? splitByActivity(rows, groupActiveAt, start, { total: page.total, hasMore: page.hasMore, needsYou: needsYou ?? (() => false), needsYouTotal })
     : null;
   const earlier = split?.reached && split.earlier > 0 ? split : null;
+  // The activity split reads the transport order above. Presentation sorts only the rows inside its two partitions,
+  // so Earlier keeps the same membership, count and unloaded tail (#11801).
+  const presentedRows = useMemo((): readonly T[] => {
+    if (!earlier || !groupActiveAt || start === null) return orderedRows;
+    return [...orderedRows.filter((row) => groupActiveAt(row) >= start), ...orderedRows.filter((row) => !(groupActiveAt(row) >= start))];
+  }, [earlier, groupActiveAt, start, orderedRows]);
   const [folded, toggleEarlier] = useFolded(personal ? "personal-sessions-earlier" : "sessions-earlier", true, {
-    holds: Boolean(earlier && isOpen && rows.slice(earlier.recent).some(isOpen)),
+    holds: Boolean(earlier && isOpen && presentedRows.slice(earlier.recent).some(isOpen)),
   });
   // folded, the list stops at its header: no further pages are read until it opens
   const foldedAway = Boolean(earlier && folded);
   const hasMore = page.hasMore && !foldedAway;
   const itemCount = sections ? 0 : (foldedAway ? earlier!.recent : rows.length) + (earlier ? 1 : 0);
   // the Earlier header sits between the recent rows and the earlier ones; null is the header
-  const rowAt = (i: number): T | null => !earlier ? rows[i] : i === earlier.recent ? null : rows[i > earlier.recent ? i - 1 : i];
+  const rowAt = (i: number): T | null => !earlier ? presentedRows[i] : i === earlier.recent ? null : presentedRows[i > earlier.recent ? i - 1 : i];
 
   const container = useRef<HTMLDivElement>(null);
   const [margin, setMargin] = useState(0);
@@ -366,12 +365,12 @@ export function PagedSessionList<T>({ root, path, identity, compare, removeIdent
   }, [scopeCounts]);
   const onQuickCounts = quick?.onCounts;
   useEffect(() => { onQuickCounts?.(quickCounts); }, [onQuickCounts, quickCounts]);
-  // the most used groups first: the menu lists a bounded number of them, and the picked one whatever its place
+  // the fixed group order: the menu lists a bounded number of them, and the picked one whatever its place
   const groups = useMemo(() => {
     const listed = (allGroups ?? []).slice(0, SESSION_LIST_METRICS.groupOptions);
     return picked && !listed.some((g) => g.key === picked.key) ? [...listed, allGroups?.find((g) => g.key === picked.key) ?? { ...picked, count: 0, needs: 0 }] : listed;
   }, [allGroups, picked]);
-  const machines = useMemo(() => Object.entries(rootPage.counts?.machine ?? {}).filter(([id]) => id).sort(([a, x], [b, y]) => y - x || a.localeCompare(b)), [rootPage.counts]);
+  const machines = useMemo(() => Object.entries(rootPage.counts?.machine ?? {}).filter(([id]) => id).sort(([a], [b]) => a.localeCompare(b)), [rootPage.counts]);
   const dimensions: { key: typeof dimension; label: string }[] = personal
     ? [{ key: "", label: t("paged-agents.recent") }, { key: "group", label: t("paged-agents.account") }]
     : [{ key: "", label: t("paged-agents.recent") }, { key: "machine", label: t("paged-agents.machine") }, { key: "project", label: t("paged-agents.project") }, { key: "group", label: t("paged-agents.group") }];
@@ -395,8 +394,8 @@ export function PagedSessionList<T>({ root, path, identity, compare, removeIdent
   };
   const chooseGroup = (key: string) => setPicked(key ? groups.find((g) => g.key === key) ?? null : null);
   // an open section reads the collection as the list above it does
-  const source: GroupedSource<T> = useMemo(() => ({ path, identity, compare, removeIdentity, event, summary: summaryMode, roots: rootsMode, parentOf }),
-    [path, identity, compare, removeIdentity, event, summaryMode, rootsMode, parentOf]);
+  const source: GroupedSource<T> = useMemo(() => ({ path, identity, compare, removeIdentity, event, summary: summaryMode, roots: rootsMode, parentOf, rowOrder }),
+    [path, identity, compare, removeIdentity, event, summaryMode, rootsMode, parentOf, rowOrder]);
   const openRow = sections && isOpen && placeOf ? rootPage.rows.find(isOpen) : undefined;
   const autoMore = useRef(0);
   useEffect(() => {

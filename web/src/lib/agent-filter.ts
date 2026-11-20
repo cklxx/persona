@@ -8,7 +8,7 @@ import { agentKey, isSpacePinned, type AgentPins } from "./pins";
 import { isMuted } from "./session-actions";
 import { unseen } from "./seen-outbox";
 import type { AgentState, Session } from "./types";
-import { byTime, timeMs } from "./times";
+import { timeMs } from "./times";
 import { stateName } from "./state-labels";
 
 export type AgentFilter = "all" | "needs" | "unread" | "working" | "bg_waiting" | "feishu" | "terminal";
@@ -102,14 +102,14 @@ export function isSpaceMuted(sp: SpaceLike, mutes: AgentMutes): boolean {
 }
 
 /** Which spaces lead and which fold into "Idle spaces". Pinned spaces (not muted) lead; then the busy ones, the muted
- * busy ones after them, each in the order given (herdr's); quiet ones fold. Under a quick filter every space it leaves is listed, the most
- * recent first, and none folds. */
+ * busy ones after them, each in the order given (herdr's); quiet ones fold. Under a quick filter every space it leaves
+ * is listed in that same stable order and none folds. */
 export function arrangeSpaces<T extends SpaceLike>(spaces: T[], o: { pins: AgentPins; mutes: AgentMutes; filtered: boolean; busy: (sp: T) => boolean }): { active: T[]; idle: T[] } {
   const lead = (sp: T) => isSpacePinned(sp.machineId, sp.name, o.pins) && !isSpaceMuted(sp, o.mutes);
   const pinned = spaces.filter(lead);
   const rest = spaces.filter((sp) => !lead(sp));
   if (o.filtered) {
-    return { active: [...pinned, ...rest.slice().sort((a, b) => byTime(spaceDate(b), spaceDate(a)) || a.key.localeCompare(b.key))], idle: [] };
+    return { active: [...pinned, ...rest], idle: [] };
   }
   const busy = rest.filter(o.busy);
   return {

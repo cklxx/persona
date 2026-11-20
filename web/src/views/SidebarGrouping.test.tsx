@@ -12,7 +12,7 @@ vi.hoisted(() => {
 });
 import { t } from "../i18n";
 import { filterAgentList, resetAgentListFilters } from "../lib/agent-list-filters";
-import { connect, refresh, reset } from "../lib/store";
+import { connect, refresh, reset, upsertSession } from "../lib/store";
 import type { Todo } from "../lib/todos";
 import type { Machine, Session } from "../lib/types";
 import { Icon, type IconName } from "../ui/icons";
@@ -346,5 +346,49 @@ describe("relative-time Agents filters", () => {
     await flush();
     expect(agentsBlock().textContent).not.toContain(agent.title);
     expect(agentsBlock().textContent).toContain(t("sidebar.no_match"));
+  });
+});
+
+describe("stable machine, workspace and tab order (#11801)", () => {
+  it("ignores activity during hover, focus, background updates and reloads", async () => {
+    localStorage.setItem("persona.agentGrouping", "machine");
+    // A browser that used the removed activity sort gets the same stable placement.
+    localStorage.setItem("persona.agentSort", "updated");
+    const placed = (id: string, machine_id: string, space: string, slot_index: number, hour: number): Session => ({
+      machine_id, session_id: id, title: id, cwd: `/${space}`, status: "idle", state: "idle", updated_at: `2026-01-01T0${hour}:00:00Z`,
+      space_id: space, space_name: space, space_index: space === "alpha" ? 0 : 1, slot_id: id, slot_index,
+    });
+    const sessions = [
+      placed("a1", "mac", "alpha", 0, 1), placed("a2", "mac", "alpha", 1, 2),
+      placed("b1", "mac", "beta", 0, 3), placed("c1", "pc", "gamma", 0, 4),
+    ];
+    const computers: Machine[] = [{ id: "mac", name: "Mac", online: true }, { id: "pc", name: "PC", online: true }];
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      const path = new URL(url, "http://hub.example.com").pathname;
+      const body = path.endsWith("/sessions") ? { sessions } : path.endsWith("/machines") ? { machines: computers } : {};
+      return Promise.resolve(new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } }));
+    }));
+    await refresh();
+    await render();
+    const order = () => [...agentsBlock().querySelectorAll<HTMLAnchorElement>('a[href^="/t/"]')].map((a) => a.getAttribute("href"));
+    const expected = ["/t/mac/alpha/a1", "/t/mac/alpha/a2", "/t/mac/beta/b1", "/t/pc/gamma/c1"];
+    expect(order()).toEqual(expected);
+
+    const hovered = agentsBlock().querySelector<HTMLAnchorElement>('a[href="/t/mac/alpha/a1"]')!;
+    act(() => {
+      hovered.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      hovered.focus();
+      upsertSession({ ...sessions[0]!, state: "needs_you", status: "idle", updated_at: "2026-01-01T10:00:00Z" });
+    });
+    await flush();
+    expect(order()).toEqual(expected);
+    expect(document.activeElement).toBe(hovered);
+
+    act(() => root.unmount());
+    reset();
+    root = createRoot(host);
+    await refresh();
+    await render();
+    expect(order()).toEqual(expected);
   });
 });

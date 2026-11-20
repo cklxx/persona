@@ -64,3 +64,14 @@ export function nestUnderParents<T>(rows: readonly T[], key: (row: T) => string,
   }
   return { rows: out, nested, lead };
 }
+
+/** A presentation sort that keeps every nested row with its top-level parent. Activity-window placement still uses
+ *  `nested.lead`; only the top-level groups move, and their placement fields do not change with activity (#11801). */
+export function orderNestedRows<T>(nested: Nested<T>, compare: (a: T, b: T) => number): readonly T[] {
+  const groups: T[][] = [];
+  for (const row of nested.rows) {
+    if (nested.nested.has(row) && groups.length) groups[groups.length - 1]!.push(row);
+    else groups.push([row]);
+  }
+  return groups.sort((a, b) => compare(a[0]!, b[0]!)).flat();
+}

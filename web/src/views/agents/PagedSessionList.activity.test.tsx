@@ -61,6 +61,13 @@ async function show(open?: string) {
   await act(async () => root.render(<PagedSessionList root={list} path="/sessions" identity={identity} compare={compare} event="sessions_list"
     activeAt={activeAt} needsYou={needsYou} isOpen={open ? (r) => r.id === open : undefined} renderRow={(r) => <span>{r.id}</span>} />));
 }
+async function showStable(open?: string) {
+  await list.load();
+  await act(async () => root.render(<PagedSessionList root={list} path="/sessions" identity={identity} compare={compare} event="sessions_list"
+    activeAt={activeAt} needsYou={needsYou} isOpen={open ? (r) => r.id === open : undefined}
+    grouping={{ dimension: "machine", query: "all", bar: null, label: "Machine", rowOrder: (a, b) => b.id.localeCompare(a.id) }}
+    renderRow={(r) => <span>{r.id}</span>} />));
+}
 const shown = () => [...host.querySelectorAll("[data-session-row]")].map((el) => el.textContent);
 const header = () => host.querySelector<HTMLElement>("[data-earlier]");
 const loadMore = () => [...host.querySelectorAll("button")].find((b) => b.textContent === t("paged-agents.more"));
@@ -113,6 +120,15 @@ describe("Active within", () => {
     await show("e");
     expect(header()?.querySelector("button")?.getAttribute("aria-expanded")).toBe("true");
     expect(shown()).toEqual(["a", "b", "c", "d", "e"]);
+  });
+
+  it("keeps the same Earlier partition and counts with a stable presentation order (#11801)", async () => {
+    localStorage.setItem("persona.agentActiveWindow", "1d");
+    await showStable("e");
+    expect(header()?.querySelector("button")?.getAttribute("aria-expanded")).toBe("true");
+    expect(shown()).toEqual(["c", "b", "a", "e", "d"]);
+    expect(header()!.querySelector("button")!.textContent).toBe(`${t("paged-agents.earlier")}37`);
+    expect(header()!.querySelector("button + span")?.textContent).toBe(`3 ${t("sidebar.needs_you_suffix", { count: 3 })}`);
   });
 
   it("offers no window to a list that gives no activity time", async () => {
