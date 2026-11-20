@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nestUnderParents, orderNestedRows } from "./side-sessions";
+import { mergeStableRows, nestUnderParents, orderNestedRows } from "./side-sessions";
 
 type Row = { id: string; parent?: string };
 const r = (id: string, parent?: string): Row => ({ id, parent });
@@ -60,7 +60,34 @@ describe("nestUnderParents", () => {
   it("sorts top-level rows without separating side sessions from their parent (#11801)", () => {
     const out = nestUnderParents([r("s1", "p"), r("q"), r("s2", "p"), r("p"), r("z")], key, parentKey);
     const ordered = orderNestedRows(out, (a, b) => b.id.localeCompare(a.id));
-    expect(ids(ordered)).toEqual(["z", "q", "p", "s1", "s2"]);
+    expect(ids(ordered)).toEqual(["z", "q", "p", "s2", "s1"]);
     expect(key(out.lead.get(out.rows[0])!)).toBe("s1"); // activity grouping still uses the newest member
+  });
+
+  it("keeps side sessions in presentation order when their transport order reverses (#11801)", () => {
+    const compare = (a: Row, b: Row) => a.id.localeCompare(b.id);
+    const first = nestUnderParents([r("s1", "p"), r("p"), r("s2", "p")], key, parentKey);
+    const reversed = nestUnderParents([r("s2", "p"), r("p"), r("s1", "p")], key, parentKey);
+    expect(ids(orderNestedRows(first, compare))).toEqual(["p", "s1", "s2"]);
+    expect(ids(orderNestedRows(reversed, compare))).toEqual(["p", "s1", "s2"]);
+  });
+});
+
+describe("mergeStableRows", () => {
+  const compare = (a: Row, b: Row) => a.id.localeCompare(b.id);
+  const candidates = (rows: Row[]) => new Map(rows.map((row) => [key(row), row]));
+
+  it("retains a displaced row but removes one whose candidate is gone", () => {
+    const initial = [r("b"), r("a")];
+    const presented = mergeStableRows([], initial, candidates(initial), key, compare);
+    expect(ids(presented)).toEqual(["a", "b"]);
+
+    const withNew = [r("c"), ...initial];
+    const retained = mergeStableRows(presented, [r("c"), r("b")], candidates(withNew), key, compare);
+    expect(ids(retained)).toEqual(["a", "b", "c"]);
+
+    const withoutA = withNew.filter((row) => row.id !== "a");
+    const removed = mergeStableRows(retained, [r("c"), r("b")], candidates(withoutA), key, compare);
+    expect(ids(removed)).toEqual(["b", "c"]);
   });
 });

@@ -65,13 +65,49 @@ export function nestUnderParents<T>(rows: readonly T[], key: (row: T) => string,
   return { rows: out, nested, lead };
 }
 
-/** A presentation sort that keeps every nested row with its top-level parent. Activity-window placement still uses
- *  `nested.lead`; only the top-level groups move, and their placement fields do not change with activity (#11801). */
-export function orderNestedRows<T>(nested: Nested<T>, compare: (a: T, b: T) => number): readonly T[] {
+/** The top-level parent and its contiguous side sessions, in their current group order. */
+function nestedGroups<T>(nested: Nested<T>): T[][] {
   const groups: T[][] = [];
   for (const row of nested.rows) {
     if (nested.nested.has(row) && groups.length) groups[groups.length - 1]!.push(row);
     else groups.push([row]);
   }
-  return groups.sort((a, b) => compare(a[0]!, b[0]!)).flat();
+  return groups;
+}
+
+/** A presentation sort that keeps every nested row with its top-level parent. Activity-window placement still uses
+ *  `nested.lead`; only placement fields that do not change with activity set the order (#11801). */
+export function orderNestedRows<T>(nested: Nested<T>, compare: (a: T, b: T) => number): readonly T[] {
+  return nestedGroups(nested).sort((a, b) => compare(a[0]!, b[0]!))
+    .flatMap(([top, ...side]) => [top!, ...side.sort(compare)]);
+}
+
+/**
+ * Reconciles a stable presentation with the newest-first transport window. Rows already presented keep their relative
+ * positions while they remain in `candidates`, even when activity pushes them out of `transport`. Newly loaded groups
+ * follow them in presentation order; a second page therefore cannot insert before a selected row. Removed rows leave
+ * with their candidate. Side sessions stay under their top-level parent and use the same presentation order (#11801).
+ */
+export function mergeStableRows<T>(previous: readonly T[], transport: readonly T[], candidates: ReadonlyMap<string, T>,
+  key: (row: T) => string, compare: (a: T, b: T) => number, parentKey?: (row: T) => string | undefined): T[] {
+  const positions = new Map<string, number>();
+  const retained: T[] = [];
+  previous.forEach((row, index) => {
+    const id = key(row);
+    positions.set(id, index);
+    const current = candidates.get(id);
+    if (current !== undefined) retained.push(current);
+  });
+  const retainedIds = new Set(retained.map(key));
+  const added = transport.filter((row) => !retainedIds.has(key(row)));
+  const combined = [...retained, ...added];
+  const groups = parentKey ? nestedGroups(nestUnderParents(combined, key, parentKey)) : combined.map((row) => [row]);
+  const placed = groups.map((rows) => {
+    let position = Number.POSITIVE_INFINITY;
+    for (const row of rows) position = Math.min(position, positions.get(key(row)) ?? Number.POSITIVE_INFINITY);
+    return { rows, position };
+  });
+  const existing = placed.filter((group) => Number.isFinite(group.position)).sort((a, b) => a.position - b.position);
+  const incoming = placed.filter((group) => !Number.isFinite(group.position)).sort((a, b) => compare(a.rows[0]!, b.rows[0]!));
+  return [...existing, ...incoming].flatMap(({ rows: [top, ...side] }) => [top!, ...side.sort(compare)]);
 }

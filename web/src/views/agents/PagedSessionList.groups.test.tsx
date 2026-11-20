@@ -310,6 +310,79 @@ describe("stable presentation over paged transport (#11801)", () => {
     await settle();
     expect(shown()).toEqual(["r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8"]);
   });
+
+  type Ranked = Row & { rank: number; place: number };
+  const transport = (a: Ranked, b: Ranked) => b.rank - a.rank || a.id.localeCompare(b.id);
+  const stable = (a: Ranked, b: Ranked) => a.place - b.place;
+  const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => `r${from + i}`);
+  const shown = () => [...host.querySelectorAll<HTMLElement>("[data-session-row]")].map((el) => el.textContent);
+  const more = () => [...host.querySelectorAll("button")].find((b) => b.textContent === t("paged-agents.more"))!;
+
+  /** A 120-row hub whose newest-first transport is the reverse of its stable tab order. */
+  async function showRankedPages() {
+    const fixture = {
+      rows: Array.from({ length: 120 }, (_, i) => ({ ...row(`r${i + 1}`, "mac", "/big"), rank: i + 1, place: i + 1 })),
+      delta: [] as Ranked[],
+      revision: "r0",
+    };
+    vi.mocked(api).mockImplementation((path) => {
+      const q = params(path as string);
+      if (q.has("counts")) return Promise.resolve(countsOf(fixture.rows)) as ReturnType<typeof api>;
+      if (q.has("since")) {
+        return Promise.resolve({ sessions: q.get("since") === fixture.revision ? [] : fixture.delta, remove: [], has_more: false,
+          total: fixture.rows.length, revision: fixture.revision }) as ReturnType<typeof api>;
+      }
+      const cursor = q.get("cursor");
+      const offset = cursor ? Number(cursor.split(":")[1]) : 0;
+      const revision = cursor?.split(":")[0] ?? fixture.revision;
+      const ordered = [...fixture.rows].sort(transport);
+      const end = offset + 50;
+      return Promise.resolve({ sessions: ordered.slice(offset, end), remove: [], has_more: end < ordered.length,
+        next_cursor: end < ordered.length ? `${revision}:${end}` : undefined, total: ordered.length, revision }) as ReturnType<typeof api>;
+    });
+    const identity = (r: Ranked) => r.id;
+    const rankedList = new SessionList<Ranked>("/sessions", identity, transport);
+    await rankedList.load();
+    await act(async () => root.render(<PagedSessionList root={rankedList} path="/sessions" identity={identity} compare={transport} event="sessions_list"
+      grouping={{ dimension: "machine", bar: null, label: "Machine", rowOrder: stable }}
+      placeOf={(r) => ({ machine: r.machine, project: r.project, group: r.group })}
+      renderRow={(r) => <span data-row={r.id}>{r.id}</span>} />));
+    await settle();
+    return { fixture, rankedList };
+  }
+
+  it("does not displace the preview when activity brings an unloaded row into the loaded prefix", async () => {
+    const { fixture, rankedList } = await showRankedPages();
+    expect(shown()).toEqual(range(71, 76));
+
+    const active = { ...fixture.rows[0]!, rank: 121 };
+    fixture.rows = fixture.rows.map((r) => r.id === active.id ? active : r);
+    fixture.delta = [active];
+    fixture.revision = "r1";
+    await act(async () => {
+      hubHint();
+      await rankedList.load();
+      await vi.advanceTimersByTimeAsync(2_100);
+    });
+
+    expect(shown()).toEqual(range(71, 76));
+    await act(async () => more().click());
+    await settle();
+    expect(shown()).toEqual([...range(71, 120), "r1"]);
+  });
+
+  it("appends a second network page without moving the rows already shown", async () => {
+    await showRankedPages();
+    expect(shown()).toEqual(range(71, 76));
+    await act(async () => more().click());
+    await settle();
+    const firstPage = range(71, 120);
+    expect(shown()).toEqual(firstPage);
+
+    await act(async () => more().click());
+    await settle();
+    expect(shown()).toEqual([...firstPage, ...range(21, 70)]);
+  });
 });
 
 describe("a list by group whose first read fails", () => {

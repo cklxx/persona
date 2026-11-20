@@ -1,6 +1,7 @@
 import { api, ApiError, errorText } from "./api";
 import { t } from "../i18n";
 import { sameValue } from "./stable-lines";
+import { mergeStableRows } from "./side-sessions";
 
 export const SESSIONS_LIST_FEATURE = "sessions_list";
 /** Asked for in the WebSocket URL: a `sessions_list` hint after a change also says the revision before it (`since`)
@@ -87,7 +88,16 @@ export interface ListSnapshot<T> {
   supported: boolean | null;
 }
 
+export interface SessionListPresentation<T> {
+  /** Stable fields only: machine, workspace, tab and pane places, never activity (#11801). */
+  compare: (a: T, b: T) => number;
+  /** Keeps a side session under its loaded parent while the stable order is retained. */
+  parentOf?: (row: T) => string | undefined;
+}
+
 export interface SessionListOptions<T> {
+  /** Retains presented rows across transport refreshes and appends newly loaded rows in stable order. */
+  presentation?: SessionListPresentation<T>;
   /** Side data refreshed with a coalesced list read, never once per raw hint. */
   onRefresh?: () => void;
   summary?: boolean;
@@ -143,6 +153,8 @@ export class SessionList<T> {
   private pageCounts: () => boolean;
   private counted: boolean;
   private onRefresh?: () => void;
+  private presentation?: SessionListPresentation<T>;
+  private presented: readonly T[] = [];
 
   constructor(
     private path: string,
@@ -153,6 +165,7 @@ export class SessionList<T> {
     options: SessionListOptions<T> = {},
   ) {
     this.onRefresh = options.onRefresh;
+    this.presentation = options.presentation;
     this.summary = options.summary ?? true;
     this.roots = options.roots ?? false;
     this.onDelta = options.onDelta;
@@ -266,6 +279,7 @@ export class SessionList<T> {
     this.frozen = new Map();
     this.overlay = new Map();
     this.prefixSize = PAGE_SIZE;
+    this.presented = [];
     this.publish(this.empty());
   }
 
@@ -355,7 +369,7 @@ export class SessionList<T> {
     if (!this.current(generation)) return null;
     if (typeof response.has_more !== "boolean" || typeof response.revision !== "string" || typeof response.total !== "number" || !Array.isArray(response.remove)) {
       const rows = Array.isArray(response.sessions) ? response.sessions : [];
-      this.publish({ rows: this.stabilize(rows), loaded: true, supported: false, total: rows.length, hasMore: false });
+      this.publish({ rows: this.complete(rows), loaded: true, supported: false, total: rows.length, hasMore: false });
       return null;
     }
     if (!Array.isArray(response.sessions) || !response.revision || (response.has_more && !response.next_cursor)) {
@@ -419,7 +433,7 @@ export class SessionList<T> {
     this.cursor = page.has_more ? page.next_cursor : undefined;
     this.frozenRevision = page.revision;
     this.checkpoint = page.revision;
-    this.publish({ rows: this.visible(), loaded: true, supported: this.snapshot.supported !== false, total: page.total, hasMore: !!this.cursor });
+    this.publish({ rows: this.visible(true), loaded: true, supported: this.snapshot.supported !== false, total: page.total, hasMore: !!this.cursor });
   }
 
   private async readDelta(generation: number, withCounts = false): Promise<PreparedDelta<T> | null> {
@@ -539,11 +553,25 @@ export class SessionList<T> {
 
   private candidateCount(): number { return this.candidates().size; }
 
-  private visible(): T[] {
-    return this.stabilize([...this.candidates().values()].sort(this.compare).slice(0, this.prefixSize));
+  private visible(resetPresentation = false): T[] {
+    const candidates = this.candidates();
+    const transport = [...candidates.values()].sort(this.compare).slice(0, this.prefixSize);
+    if (!this.presentation) return this.stabilize(transport);
+    if (resetPresentation) this.presented = [];
+    this.presented = mergeStableRows(this.presented, transport, candidates, this.identity,
+      this.presentation.compare, this.presentation.parentOf);
+    return this.stabilize(this.presented);
   }
 
-  private stabilize(rows: T[]): T[] {
+  /** An older hub's complete, unpaginated answer has no transport window to retain. */
+  private complete(rows: T[]): T[] {
+    if (!this.presentation) return this.stabilize(rows);
+    const candidates = new Map(rows.map((row) => [this.identity(row), row]));
+    this.presented = mergeStableRows([], rows, candidates, this.identity, this.presentation.compare, this.presentation.parentOf);
+    return this.stabilize(this.presented);
+  }
+
+  private stabilize(rows: readonly T[]): T[] {
     const old = new Map(this.snapshot.rows.map((row) => [this.identity(row), row]));
     const next = rows.map((row) => {
       const had = old.get(this.identity(row));

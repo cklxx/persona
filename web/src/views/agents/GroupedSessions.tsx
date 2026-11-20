@@ -13,7 +13,7 @@ import { SectionList } from "../../lib/section-list";
 import { groupMachines, holdsPlace, JUST_FINISHED_KEY, type GroupDimension, type SessionGroup, type SessionPlace } from "../../lib/session-groups";
 import { onShownHint } from "../../lib/shown-hints";
 import { useFolded } from "../../lib/use-folded";
-import { nestUnderParents, orderNestedRows } from "../../lib/side-sessions";
+import { nestUnderParents } from "../../lib/side-sessions";
 import { Button } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
 import { SESSION_LIST_METRICS, SESSION_LIST_STYLE } from "../../ui/list-metrics";
@@ -130,8 +130,9 @@ function GroupRows<T>({ group, dimension, scope, source, renderRow }: {
   // rows only: the section's numbers are the ones its heading already has. A runtime section passes over the hints that
   // name none of its rows (#9176): with several open, each read for every agent's update anywhere.
   const follows = event === "sessions_list";
-  const list = useMemo(() => new (follows ? SectionList : SessionList)<T>(path, identity, compare, undefined, removeIdentity, { summary, roots, counts: false }),
-    [path, identity, compare, removeIdentity, summary, roots, follows]);
+  const list = useMemo(() => new (follows ? SectionList : SessionList)<T>(path, identity, compare, undefined, removeIdentity, {
+    summary, roots, counts: false, presentation: rowOrder ? { compare: rowOrder, parentOf } : undefined,
+  }), [path, identity, compare, removeIdentity, summary, roots, follows, rowOrder, parentOf]);
   // the groups are built again with every read: the list follows what they select, not which object says it
   const selected = filterQuery({ ...scope, ...group.filters }, {});
   const filters = useMemo(() => ({ ...scope, ...group.filters }), [selected]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -159,11 +160,10 @@ function GroupRows<T>({ group, dimension, scope, source, renderRow }: {
   // a session started from another one shown here comes under it, a level in (#5935), as in the flat list
   const sourceRows = rowOrder ? page.rows : preview;
   const nesting = useMemo(() => parentOf ? nestUnderParents(sourceRows, identity, parentOf) : null, [sourceRows, identity, parentOf]);
-  const ordered = useMemo((): readonly T[] => rowOrder ? nesting ? orderNestedRows(nesting, rowOrder) : [...sourceRows].sort(rowOrder) : nesting?.rows ?? sourceRows,
-    [rowOrder, nesting, sourceRows]);
-  // Sort the whole loaded prefix before taking the preview: an activity update later in that prefix cannot displace
-  // one of the visible rows (#11801). "Load more" then shows what is read, then reads on.
-  const rows = rowOrder && ordered.length > limit ? ordered.slice(0, limit) : ordered;
+  // The stable list retains presented rows when transport activity displaces them and appends each newly read page.
+  // Other lists keep the transport's newest-first order (#11801).
+  const arranged = nesting?.rows ?? sourceRows;
+  const rows = arranged.length > limit ? arranged.slice(0, limit) : arranged;
   const more = () => {
     if (page.rows.length <= limit) void list.more().catch(() => {});
     setLimit(limit + PAGE_SIZE);
