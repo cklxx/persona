@@ -20,7 +20,7 @@ import { shortPath } from "../../lib/format";
 import { removeStoredValue, storedValue, storeValue } from "../../lib/compatibility";
 import { ACTIVE_WINDOWS, activeWindow, splitByActivity, windowStart, type ActiveWindow } from "../../lib/session-activity";
 import { useFolded } from "../../lib/use-folded";
-import { nestUnderParents, orderNestedRows, type StableRowOrder } from "../../lib/side-sessions";
+import { nestUnderParents, type StableRowOrder } from "../../lib/side-sessions";
 import { sameValue } from "../../lib/stable-lines";
 import { lazyPage } from "../../lib/lazy-page";
 import { NeedsCount, ShowMoreRow } from "../SidebarSection";
@@ -163,7 +163,13 @@ export function PagedSessionList<T>({ root, path, identity, compare, removeIdent
   const rootsMode = root.isRoots();
   const queryPath = `${path}${path.includes("?") ? "&" : "?"}`;
   const countsPath = rootsMode ? `${queryPath}roots=1&` : queryPath;
-  const list = useMemo(() => filtered ? new SessionList<T>(path, identity, compare, undefined, removeIdentity, { summary: summaryMode, roots: rootsMode, pageCounts: () => root.usesPageCounts() }) : root, [filtered, path, identity, compare, removeIdentity, summaryMode, rootsMode, root, filters]);
+  const rowOrder = grouping?.rowOrder;
+  const presentation = useMemo(() => rowOrder ? { ...rowOrder, parentOf } : undefined, [rowOrder, parentOf]);
+  const list = useMemo(() => filtered ? new SessionList<T>(path, identity, compare, undefined, removeIdentity, { summary: summaryMode, roots: rootsMode, pageCounts: () => root.usesPageCounts(), presentation }) : root,
+    [filtered, path, identity, compare, removeIdentity, summaryMode, rootsMode, root, filters, presentation]);
+  // The root is shared with the hub's counts and invalidation. Apply the same retention as a filtered list instead of
+  // letting an activity-only transport prefix displace a flat list's shown rows (#11801).
+  useLayoutEffect(() => { if (presentation) root.setPresentation(presentation); }, [root, presentation]);
   const page = useSyncExternalStore(list.subscribe, list.getSnapshot, list.getSnapshot);
   const [facets, setFacets] = useState<ListCounts | null>(null);
   const [facetError, setFacetError] = useState("");
@@ -274,11 +280,8 @@ export function PagedSessionList<T>({ root, path, identity, compare, removeIdent
   // recent member was. Only the order changes: the rows, the total and every count stay the server's.
   const nesting = useMemo(() => parentOf ? nestUnderParents(page.rows, identity, parentOf) : null, [page.rows, identity, parentOf]);
   const rows = nesting?.rows ?? page.rows;
-  const rowOrder = grouping?.rowOrder;
-  const orderedRows = useMemo((): readonly T[] => {
-    if (!rowOrder) return rows;
-    return nesting ? orderNestedRows(nesting, rowOrder.compare) : [...rows].sort(rowOrder.compare);
-  }, [rows, nesting, rowOrder]);
+  // SessionList owns presentation reconciliation. Sorting its output here would reintroduce activity-driven movement.
+  const orderedRows = rows;
   // a group is as recent as its most recent member, so Earlier never splits one
   const groupActiveAt = useMemo(() => activeAt && nesting ? (row: T) => activeAt(nesting.lead.get(row) ?? row) : activeAt, [activeAt, nesting]);
 
@@ -294,16 +297,24 @@ export function PagedSessionList<T>({ root, path, identity, compare, removeIdent
   const start = activeAt ? windowStart(win, clock) : null;
   // the Needs you chip's number for this scope: the server's, by the same rule as the chip
   const needsYouTotal = chip.state ? (chip.state === "needs_you" ? page.total : 0) : chip.pane_source ? page.counts?.state?.needs_you : scopeCounts?.state?.needs_you;
+  const rowNeedsYou = needsYou ?? (() => false);
   const split = groupActiveAt && start !== null
-    ? splitByActivity(rows, groupActiveAt, start, { total: page.total, hasMore: page.hasMore, needsYou: needsYou ?? (() => false), needsYouTotal })
+    ? splitByActivity(list.getTransportRows(), groupActiveAt, start, { total: page.total, hasMore: page.hasMore, needsYou: rowNeedsYou, needsYouTotal })
     : null;
-  const earlier = split?.reached && split.earlier > 0 ? split : null;
-  // The activity split reads the transport order above. Presentation sorts only the rows inside its two partitions,
-  // so Earlier keeps the same membership, count and unloaded tail (#11801).
+  const hasEarlier = Boolean(split?.reached && split.earlier > 0);
+  // Transport says whether every recent row is loaded. Presentation then partitions its retained rows by their current
+  // activity, so the header's position and counts include rows that an activity-only refresh kept out of the prefix.
   const presentedRows = useMemo((): readonly T[] => {
-    if (!earlier || !groupActiveAt || start === null) return orderedRows;
+    if (!hasEarlier || !groupActiveAt || start === null) return orderedRows;
     return [...orderedRows.filter((row) => groupActiveAt(row) >= start), ...orderedRows.filter((row) => !(groupActiveAt(row) >= start))];
-  }, [earlier, groupActiveAt, start, orderedRows]);
+  }, [hasEarlier, groupActiveAt, start, orderedRows]);
+  const firstEarlier = hasEarlier && groupActiveAt && start !== null ? presentedRows.findIndex((row) => !(groupActiveAt(row) >= start)) : -1;
+  const recent = firstEarlier === -1 ? presentedRows.length : firstEarlier;
+  const earlierCount = hasEarlier ? Math.max(0, page.total - recent, presentedRows.length - recent) : 0;
+  const recentNeedsYou = presentedRows.slice(0, recent).filter(rowNeedsYou).length;
+  const earlierNeedsYou = needsYouTotal === undefined ? presentedRows.slice(recent).filter(rowNeedsYou).length
+    : Math.min(earlierCount, Math.max(0, needsYouTotal - recentNeedsYou));
+  const earlier = hasEarlier && earlierCount > 0 ? { recent, reached: true, earlier: earlierCount, earlierNeedsYou } : null;
   const [folded, toggleEarlier] = useFolded(personal ? "personal-sessions-earlier" : "sessions-earlier", true, {
     holds: Boolean(earlier && isOpen && presentedRows.slice(earlier.recent).some(isOpen)),
   });

@@ -155,6 +155,7 @@ export class SessionList<T> {
   private onRefresh?: () => void;
   private presentation?: SessionListPresentation<T>;
   private presented: readonly T[] = [];
+  private transport: T[] = [];
 
   constructor(
     private path: string,
@@ -179,6 +180,15 @@ export class SessionList<T> {
   /** For a list over the same collection, e.g. a filtered copy of this one. */
   usesPageCounts(): boolean { return this.pageCounts(); }
 
+  /** Give an already shared root the same stable presentation as its filtered copies, without replacing its baseline. */
+  setPresentation(presentation: SessionListPresentation<T>): void {
+    if (this.presentation === presentation) return;
+    this.presentation = presentation;
+    if (!this.snapshot.loaded) return;
+    const rows = this.snapshot.supported === false ? this.complete(this.snapshot.rows) : this.visible();
+    this.publish({ rows });
+  }
+
   /** Changing projection invalidates its bound cursors, but preserves filters and does not start a read. */
   setSummary(value: boolean): void {
     if (this.summary === value) return;
@@ -194,6 +204,8 @@ export class SessionList<T> {
   }
 
   getSnapshot = (): ListSnapshot<T> => this.snapshot;
+  /** The newest-first loaded prefix, before stable presentation retains or reorders rows. Activity windows read this. */
+  getTransportRows(): readonly T[] { return this.transport; }
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
@@ -280,6 +292,7 @@ export class SessionList<T> {
     this.overlay = new Map();
     this.prefixSize = PAGE_SIZE;
     this.presented = [];
+    this.transport = [];
     this.publish(this.empty());
   }
 
@@ -558,7 +571,8 @@ export class SessionList<T> {
   private visible(resetPresentation = false, added?: ReadonlySet<string>): T[] {
     const candidates = this.candidates();
     const transport = [...candidates.values()].sort(this.compare).slice(0, this.prefixSize);
-    if (!this.presentation) return this.stabilize(transport);
+    this.transport = this.stabilize(transport);
+    if (!this.presentation) return this.transport;
     if (resetPresentation) this.presented = [];
     this.presented = mergeStableRows(this.presented, transport, candidates, this.identity, this.presentation, this.presentation.parentOf, added);
     return this.stabilize(this.presented);
@@ -566,7 +580,8 @@ export class SessionList<T> {
 
   /** An older hub's complete, unpaginated answer has no transport window to retain. */
   private complete(rows: T[]): T[] {
-    if (!this.presentation) return this.stabilize(rows);
+    this.transport = this.stabilize(rows);
+    if (!this.presentation) return this.transport;
     const candidates = new Map(rows.map((row) => [this.identity(row), row]));
     this.presented = mergeStableRows([], rows, candidates, this.identity, this.presentation, this.presentation.parentOf);
     return this.stabilize(this.presented);

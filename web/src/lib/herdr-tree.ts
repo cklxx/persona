@@ -61,7 +61,8 @@ export function machineSessionPresentation(machines: readonly Machine[]): Stable
   const machine = (s: Session) => machinePlace.get(s.machine_id) ?? Number.MAX_SAFE_INTEGER;
   const placementOf = (s: Session): readonly (number | string)[] => [
     machine(s), s.machine_id,
-    spacePlace(s), s.space_name || s.space_id || "", s.space_id || "",
+    // buildMachineTree lists every workspace before Other, including when the host supplies no workspace indices.
+    s.space_id ? 0 : 1, spacePlace(s), s.space_name || s.space_id || "", s.space_id || "",
     tabPlace(s), s.slot_id || "", placeOf(s), paneNumber(s), s.session_id,
   ];
   const compare = (a: Session, b: Session): number => {

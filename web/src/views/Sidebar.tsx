@@ -8,7 +8,7 @@ import { storedValue, storeValue } from "../lib/compatibility";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { t } from "../i18n";
 import { NARROW, useMedia } from "../lib/viewport";
-import { AGENT_FILTERS, agentFilter, applyFilter, arrangeSpaces, filterCounts, isSpaceMuted, matchesFilter, matchingKeys, shownFilters, unreadOf, withoutBotmux, type AgentFilter, type FilterCounts, type SpaceArrangement } from "../lib/agent-filter";
+import { AGENT_FILTERS, agentFilter, applyFilter, arrangeSpaces, filterCounts, isSpaceMuted, matchesFilter, matchingKeys, shownFilters, unreadOf, withoutBotmux, type AgentFilter, type FilterCounts } from "../lib/agent-filter";
 import { applyDimensionFilters, buildAgentFacets, DEFAULT_DIMENSION_FILTERS, hasActiveDimensionFilters, NO_FACETS, type AgentDimensionFilters } from "../lib/agent-chatlist-filter";
 import { getAgentListFilters, setAgentListFilters, useAgentListFilters } from "../lib/agent-list-filters";
 import { AgentChatListRow, AgentFilterButton, AgentFilterChips } from "./agents/AgentChatListControls";
@@ -791,6 +791,17 @@ function BoundedAgentsBlock({ reg, hover, activeKey, go, onNewAgent, onNavigate,
 }
 
 
+// Tab-scoped UI memory: a reload presents the same active/Idle membership, but a new tab starts from current activity.
+const ACTIVE_SPACES_KEY = "persona.agentActiveSpaces";
+function retainedActiveSpaces(): ReadonlySet<string> {
+  try {
+    const value: unknown = JSON.parse(sessionStorage.getItem(ACTIVE_SPACES_KEY) ?? "[]");
+    return new Set(Array.isArray(value) ? value : []);
+  } catch {
+    return new Set();
+  }
+}
+
 function LegacyAgentsBlock({ reg, hover, activeKey, go, onNewAgent, onNavigate, workspaceActions, add = true, foldable = false, grouping, hubUnreachable, chooseGrouping }: AgentsBlockProps & { grouping: AgentGrouping; /** useHubUnreachable */ hubUnreachable: boolean; chooseGrouping: (g: AgentGrouping) => void }) {
   // the current assistant's computers, agents and to-dos (all of them with one assistant)
   const scope = useScope();
@@ -985,14 +996,23 @@ function LegacyAgentsBlock({ reg, hover, activeKey, go, onNewAgent, onNavigate, 
   const closeMarkSeen = useCallback(() => setConfirmSeen(null), []);
   const clearKept = useCallback(() => setKept(new Set()), []);
 
-  // A space's first presentation classifies it. Later activity updates its rows in place, including while one is
-  // hovered or focused; it never moves the workspace between the active list and "Idle spaces" (#11801).
-  const previousSpaces = useRef<SpaceArrangement<Space> | undefined>(undefined);
+  // Quieting a row does not move its workspace below the pointer. Current activity wins over retained placement, so
+  // needs-you, Just finished and background work always leave the folded Idle section. The active keys survive reload.
+  const retainedActive = useRef<ReadonlySet<string> | undefined>(undefined);
+  if (retainedActive.current === undefined) retainedActive.current = retainedActiveSpaces();
   const busy = (sp: Space) => sp.sessions.some((s) => !isQuiet(s, mutes) || activeKey === `s:${s.machine_id}/${s.session_id}`);
   // pinned spaces lead; under a quick filter nothing folds into "Idle spaces"
-  const arrangedSpaces = arrangeSpaces(spaces, { pins, mutes, filtered, busy, previous: previousSpaces.current });
-  // A temporary filter lists every match above Idle; it must not turn that display into the remembered membership.
-  useLayoutEffect(() => { if (!filtered) previousSpaces.current = arrangedSpaces; }, [arrangedSpaces, filtered]);
+  const arrangedSpaces = arrangeSpaces(spaces, { pins, mutes, filtered, busy, retainedActive: retainedActive.current });
+  // A temporary filter or another grouping is not a presentation of this list and must not replace its membership.
+  useLayoutEffect(() => {
+    if (!loaded || filtered || shownGrouping !== "space") return;
+    const keys = arrangedSpaces.active.map((sp) => sp.key);
+    retainedActive.current = new Set(keys);
+    try {
+      const value = JSON.stringify(keys);
+      if (sessionStorage.getItem(ACTIVE_SPACES_KEY) !== value) sessionStorage.setItem(ACTIVE_SPACES_KEY, value);
+    } catch { /* A blocked or full store still keeps this mount's in-memory placement. */ }
+  }, [arrangedSpaces, filtered, shownGrouping, loaded]);
   const { active, idle } = arrangedSpaces;
   const tree = { machines, reg, hover, activeKey, go, mutes, onSpaceMenu, onRowMenu, onNodeMenu, onNavigate };
 

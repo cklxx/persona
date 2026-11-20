@@ -55,6 +55,17 @@ describe("stable sidebar order (#11801)", () => {
     expect(ids([...initial].reverse())).toEqual(ids(initial));
   });
 
+  it("puts an unindexed workspace before Other in both paged and legacy placement", () => {
+    const base = { machine_id: "mac", title: "", cwd: "/tmp", status: "idle" as const, state: "idle" as const };
+    const spaced: Session = { ...base, session_id: "spaced", space_kind: "paseo", space_id: "prj_app", space_name: "app" };
+    const loose: Session = { ...base, session_id: "loose" };
+    const flat = [spaced, loose].sort(machineSessionOrder(machines)).map((s) => s.session_id);
+    const tree = buildMachineTree(machines, [loose, spaced])[0]!;
+    const legacy = [...tree.spaces.flatMap((space) => space.sessions), ...tree.other].map((s) => s.session_id);
+    expect(flat).toEqual(["spaced", "loose"]);
+    expect(legacy).toEqual(flat);
+  });
+
   it("reconciles real herdr slot and pane moves, created tabs and reloads without following activity", () => {
     const rows = [
       { ...agent("a1", "mac", "alpha", "tab-a", 0, 1), pane_index: 0 },

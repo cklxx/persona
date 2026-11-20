@@ -74,6 +74,7 @@ const render = async () => {
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   reset();
   resetAgentListFilters();
   FakeSocket.all = [];
@@ -392,7 +393,7 @@ describe("stable machine, workspace and tab order (#11801)", () => {
     expect(order()).toEqual(expected);
   });
 
-  it("keeps By project workspaces in their active or Idle section during activity, hover and focus", async () => {
+  it("keeps quieted workspaces active across focus and reload without hiding new activity in Idle", async () => {
     localStorage.setItem("persona.agentGrouping", "space");
     const placed = (id: string, space: string, state: "working" | "idle" | "needs_you"): Session => ({
       machine_id: "mac", session_id: id, title: id, cwd: `/${space}`, status: state === "needs_you" ? "idle" : state, state,
@@ -439,11 +440,23 @@ describe("stable machine, workspace and tab order (#11801)", () => {
     });
     await flush();
     expect(heading("alpha")).toBeDefined();
-    expect(heading("beta")).toBeUndefined();
-    expect(heading(idleName())).toBeDefined();
+    expect(heading("beta")).toBeDefined();
+    expect(heading(idleName())).toBeUndefined();
     expect(agentsBlock().querySelector<HTMLAnchorElement>('a[href="/s/mac/a1"]')).toBe(alpha);
     expect(alpha.querySelector('[data-state="idle"]')).not.toBeNull();
     expect(agentsBlock().querySelector('a[href="/s/mac/b1"] [data-state="needs_you"]')).not.toBeNull();
     expect(document.activeElement).toBe(alpha);
+
+    // Reload reconstructs the same membership: alpha stays active although quiet, beta stays visible above Idle.
+    act(() => root.unmount());
+    reset();
+    root = createRoot(host);
+    await render(); // reload draws the empty store before GET /sessions answers
+    await act(async () => { await refresh(); });
+    await flush();
+    expect(heading("alpha")).toBeDefined();
+    expect(heading("beta")).toBeDefined();
+    expect(heading(idleName())).toBeUndefined();
+    expect(agentsBlock().querySelector('a[href="/s/mac/b1"] [data-state="needs_you"]')).not.toBeNull();
   });
 });

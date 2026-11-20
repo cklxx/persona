@@ -22,6 +22,14 @@ vi.mock("../../lib/store", () => ({
     return () => { hub.handlers.delete(entry); };
   },
 }));
+// jsdom lays nothing out, so the flat list's virtualizer would draw no row: draw every item, in order.
+vi.mock("@tanstack/react-virtual", () => ({
+  useVirtualizer: ({ count, getItemKey }: { count: number; getItemKey: (i: number) => string }) => ({
+    getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, key: getItemKey(index), start: index * 32 })),
+    getTotalSize: () => count * 32,
+    measureElement: () => {},
+  }),
+}));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
 
@@ -319,7 +327,7 @@ describe("stable presentation over paged transport (#11801)", () => {
   const more = () => [...host.querySelectorAll("button")].find((b) => b.textContent === t("paged-agents.more"))!;
 
   /** A 120-row hub whose newest-first transport is the reverse of its stable tab order. */
-  async function showRankedPages() {
+  async function showRankedPages(query = "") {
     const fixture = {
       rows: Array.from({ length: 120 }, (_, i) => ({ ...row(`r${i + 1}`, "mac", "/big"), rank: i + 1, place: i + 1 })),
       delta: [] as Ranked[],
@@ -344,9 +352,9 @@ describe("stable presentation over paged transport (#11801)", () => {
     const rankedList = new SessionList<Ranked>("/sessions", identity, transport);
     await rankedList.load();
     await act(async () => root.render(<PagedSessionList root={rankedList} path="/sessions" identity={identity} compare={transport} event="sessions_list"
-      grouping={{ dimension: "machine", bar: null, label: "Machine", rowOrder: { compare: stable, placementOf: (r) => r.place } }}
+      grouping={{ dimension: "machine", bar: null, label: "Machine", query, rowOrder: { compare: stable, placementOf: (r) => r.place } }}
       placeOf={(r) => ({ machine: r.machine, project: r.project, group: r.group })}
-      renderRow={(r) => <span data-row={r.id}>{r.id}</span>} />));
+      renderRow={(r) => <span tabIndex={0} data-row={r.id}>{r.id}</span>} />));
     await settle();
     return { fixture, rankedList };
   }
@@ -369,6 +377,28 @@ describe("stable presentation over paged transport (#11801)", () => {
     await act(async () => more().click());
     await settle();
     expect(shown()).toEqual([...range(71, 120), "r1"]);
+  });
+
+  it("retains flat-search rows and focus when activity brings an unloaded row into the prefix", async () => {
+    const { fixture } = await showRankedPages("r");
+    const before = shown();
+    expect(before[0]).toBe("r71");
+    const focused = host.querySelector<HTMLElement>('[data-row="r71"]')!;
+    act(() => focused.focus());
+    expect(document.activeElement).toBe(focused);
+
+    const active = { ...fixture.rows[0]!, rank: 121 };
+    fixture.rows = fixture.rows.map((r) => r.id === active.id ? active : r);
+    fixture.delta = [active];
+    fixture.revision = "r1";
+    await act(async () => {
+      hubHint();
+      await vi.advanceTimersByTimeAsync(2_100);
+    });
+
+    expect(shown().slice(0, before.length)).toEqual(before);
+    expect(shown().at(-1)).toBe("r1"); // newly active, but an old row: it follows the retained presentation
+    expect(document.activeElement).toBe(focused);
   });
 
   it("appends a second network page without moving the rows already shown", async () => {

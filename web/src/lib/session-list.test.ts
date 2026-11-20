@@ -57,6 +57,21 @@ describe("SessionList baseline, filters and structural sharing", () => {
     expect(list.getSnapshot()).toBe(list.getSnapshot());
   });
 
+  it("applies stable presentation to an already loaded root without following later activity", async () => {
+    const list = make();
+    await list.load();
+    list.setPresentation({ compare: (a, b) => Number(b.id) - Number(a.id), placementOf: (r) => r.id });
+    const before = ids(list);
+    expect(before[0]).toBe("49");
+    expect(before.at(-1)).toBe("0");
+
+    pages.mockResolvedValueOnce(page([row("0", 20_000, "active")], { revision: "delta" }));
+    await list.load();
+    expect(ids(list)).toEqual(before);
+    expect(list.getSnapshot().rows.at(-1)?.title).toBe("active");
+    expect(requestParams().at(-1)?.since).toBe("baseline");
+  });
+
   it("publishes rows immediately even when counts have not returned", async () => {
     const later = deferred<ListCounts>();
     aggregates.mockReturnValueOnce(later.promise);
