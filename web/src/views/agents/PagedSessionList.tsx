@@ -277,13 +277,18 @@ export function PagedSessionList<T>({ root, path, identity, compare, removeIdent
   }, [allGroups, picked]);
 
   const transportRows = list.getTransportRows();
-  // A session started from another one comes under it (#5935). SessionList has already applied the one structural
-  // presentation order; this pass marks nested rows and reads the newest member's activity without reordering them.
+  // Activity totals need their own newest-first transport groups: structural presentation can put an unrelated older
+  // row between a recent side session and its parent, which must not end the transport's recent prefix (#11801).
+  const activityNesting = useMemo(() => activeAt && parentOf ? nestUnderParents(transportRows, identity, parentOf, activeAt) : null, [transportRows, identity, parentOf, activeAt]);
+  const activityRows = activityNesting?.rows ?? transportRows;
+  // SessionList has already applied the one structural presentation order. This separate view draws nested rows and
+  // partitions the retained presentation; its lead never substitutes for the transport's activity lead.
   const nesting = useMemo(() => parentOf ? nestUnderParents(page.rows, identity, parentOf, activeAt) : null, [page.rows, identity, parentOf, activeAt]);
   const rows = nesting?.rows ?? page.rows;
   const orderedRows = rows;
   // a group is as recent as its most recent member, so Earlier never splits one
   const groupActiveAt = useMemo(() => activeAt && nesting ? (row: T) => activeAt(nesting.lead.get(row) ?? row) : activeAt, [activeAt, nesting]);
+  const activityActiveAt = useMemo(() => activeAt && activityNesting ? (row: T) => activeAt(activityNesting.lead.get(row) ?? row) : activeAt, [activeAt, activityNesting]);
 
   // "Active within" (#4236): the rows active before the window fold into Earlier, after the recent ones. The split
   // moves with the clock; the list itself, its total and its filters stay the server's.
@@ -298,8 +303,8 @@ export function PagedSessionList<T>({ root, path, identity, compare, removeIdent
   // the Needs you chip's number for this scope: the server's, by the same rule as the chip
   const needsYouTotal = chip.state ? (chip.state === "needs_you" ? page.total : 0) : chip.pane_source ? page.counts?.state?.needs_you : scopeCounts?.state?.needs_you;
   const rowNeedsYou = needsYou ?? (() => false);
-  const split = groupActiveAt && start !== null
-    ? splitByActivity(transportRows, groupActiveAt, start, { total: page.total, hasMore: page.hasMore, needsYou: rowNeedsYou, needsYouTotal })
+  const split = activityActiveAt && start !== null
+    ? splitByActivity(activityRows, activityActiveAt, start, { total: page.total, hasMore: page.hasMore, needsYou: rowNeedsYou, needsYouTotal })
     : null;
   // Transport's newest-first split supplies the server totals. Presentation partitions its own retained rows too: an
   // older retained row needs Earlier even when every row left in the current transport prefix is recent.
@@ -316,7 +321,7 @@ export function PagedSessionList<T>({ root, path, identity, compare, removeIdent
   const loaded = new Set(transportRows.map(identity));
   const retainedRecent = presentedRows.slice(0, recent).filter((row) => !loaded.has(identity(row)));
   const earlierCount = hasEarlier && split ? Math.max(0, page.total - split.recent - retainedRecent.length, presentedEarlier) : 0;
-  const recentNeedsYou = transportRows.slice(0, split?.recent ?? 0).filter(rowNeedsYou).length + retainedRecent.filter(rowNeedsYou).length;
+  const recentNeedsYou = activityRows.slice(0, split?.recent ?? 0).filter(rowNeedsYou).length + retainedRecent.filter(rowNeedsYou).length;
   const earlierNeedsYou = needsYouTotal === undefined ? presentedRows.slice(recent).filter(rowNeedsYou).length
     : Math.min(earlierCount, Math.max(0, needsYouTotal - recentNeedsYou));
   const earlier = hasEarlier && earlierCount > 0 ? { recent, reached: true, earlier: earlierCount, earlierNeedsYou } : null;

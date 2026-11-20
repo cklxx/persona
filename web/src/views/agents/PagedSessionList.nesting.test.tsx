@@ -100,4 +100,25 @@ describe("side sessions in the paged list (#5935)", () => {
     const header = host.querySelector<HTMLElement>("[data-earlier] button");
     expect(header?.textContent).toBe(`${t("paged-agents.earlier")}1`);
   });
+
+  it("counts an interleaved parent and side as recent, with only the unrelated rows Earlier (#11801)", async () => {
+    localStorage.setItem("persona.agentActiveWindow", "1d");
+    const interleaved = [row("side", 1, "idle", "parent"), row("unrelated", 30, "needs_you"), row("parent", 40, "needs_you"), row("old", 200)];
+    const interleavedCounts: ListCounts = { total: 4, state: { needs_you: 2, idle: 2 }, machine: {}, project: {}, group: {}, revision: "r" };
+    vi.mocked(api).mockImplementation((path) => {
+      const params = new URL(path, "https://example.com").searchParams;
+      return Promise.resolve(params.has("counts") ? interleavedCounts
+        : { sessions: interleaved, remove: [], has_more: false, total: 4, revision: "r" }) as ReturnType<typeof api>;
+    });
+    await show(true, true);
+
+    expect(shown()).toEqual(["parent", "side"]);
+    const header = host.querySelector<HTMLElement>("[data-earlier]")!;
+    expect(header.querySelector("button")?.textContent).toBe(`${t("paged-agents.earlier")}2`);
+    expect(header.querySelector("button + span")?.textContent).toBe(`1 ${t("sidebar.needs_you_suffix", { count: 1 })}`);
+
+    await act(async () => header.querySelector("button")!.click());
+    const items = [...host.querySelectorAll("[data-index]")].map((el) => el.hasAttribute("data-earlier") ? "earlier" : el.textContent);
+    expect(items).toEqual(["parent", "side", "earlier", "old", "unrelated"]);
+  });
 });
