@@ -574,7 +574,7 @@ export class SessionList<T> {
     this.transport = this.stabilize(transport);
     if (!this.presentation) return this.transport;
     if (resetPresentation) this.presented = [];
-    this.presented = mergeStableRows(this.presented, transport, candidates, this.identity, this.presentation, this.presentation.parentOf, added);
+    this.presented = mergeStableRows(this.presented, transport, candidates, this.identity, this.presentation, this.presentation.parentOf, added, PAGE_SIZE);
     return this.stabilize(this.presented);
   }
 

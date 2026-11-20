@@ -72,6 +72,46 @@ describe("SessionList baseline, filters and structural sharing", () => {
     expect(requestParams().at(-1)?.since).toBe("baseline");
   });
 
+  it("keeps a two-page slot swap in the same order after a fresh baseline and the same reads (#11801)", async () => {
+    let source = Array.from({ length: 120 }, (_, i) => row(`r${i + 1}`, i + 1, String(i + 1)));
+    let delta: Row[] = [];
+    let revision = "r0";
+    vi.mocked(api).mockImplementation((path) => {
+      const q = params(path);
+      if (q.has("since")) return Promise.resolve(page(q.get("since") === revision ? [] : delta, { revision, total: source.length })) as ReturnType<typeof api>;
+      const cursor = q.get("cursor");
+      const offset = cursor ? Number(cursor.split(":")[1]) : 0;
+      const pageRevision = cursor?.split(":")[0] ?? revision;
+      const ordered = [...source].sort((a, b) => b.rank - a.rank || a.id.localeCompare(b.id));
+      const end = offset + PAGE_SIZE;
+      return Promise.resolve(page(ordered.slice(offset, end), {
+        revision: pageRevision, total: source.length, has_more: end < source.length,
+        next_cursor: end < source.length ? `${pageRevision}:${end}` : undefined,
+      })) as ReturnType<typeof api>;
+    });
+    const options: SessionListOptions<Row> = { counts: false, presentation: {
+      compare: (a, b) => Number(a.title) - Number(b.title), placementOf: (r) => r.title,
+    } };
+    const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => `r${from + i}`);
+    const list = make(undefined, options);
+    await list.load();
+    await list.more();
+    expect(ids(list)).toEqual([...range(71, 120), ...range(21, 70)]);
+
+    const left = source[109]!, right = source[119]!;
+    delta = [{ ...left, title: right.title }, { ...right, title: left.title }];
+    source = source.map((row) => delta.find((changed) => changed.id === row.id) ?? row);
+    revision = "r1";
+    await list.load();
+    const afterSwap = ids(list);
+    expect(afterSwap).toEqual([...range(71, 109), "r120", ...range(111, 119), "r110", ...range(21, 70)]);
+
+    const reloaded = make(undefined, options);
+    await reloaded.load();
+    await reloaded.more();
+    expect(ids(reloaded)).toEqual(afterSwap);
+  });
+
   it("publishes rows immediately even when counts have not returned", async () => {
     const later = deferred<ListCounts>();
     aggregates.mockReturnValueOnce(later.promise);

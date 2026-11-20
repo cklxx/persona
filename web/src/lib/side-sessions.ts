@@ -93,12 +93,15 @@ export interface StableRowOrder<T> {
 /**
  * Reconciles a stable presentation with the newest-first transport window. Activity-only updates keep every retained
  * row in place, even when activity pushes it out of `transport`; newly loaded pages follow in presentation order.
- * A real placement change instead sorts the whole loaded window again, including swapped tabs and a tab inserted
- * before them. `addedIds` is the delta's creation evidence: without it, an older row newly active in the transport is
- * indistinguishable from a new tab and must not displace loaded rows. Removed rows leave with their candidate (#11801).
+ * A real placement change or creation rebuilds the transport one page at a time, exactly as a fresh reload does,
+ * instead of promoting later pages ahead of the first. `addedIds` is the delta's creation evidence: without it, an
+ * older row newly active in the transport is indistinguishable from a new tab and must not displace loaded rows.
+ * Removed rows leave with their candidate (#11801). `pageSize` is the transport's page size, or infinite for a
+ * complete list.
  */
 export function mergeStableRows<T>(previous: readonly T[], transport: readonly T[], candidates: ReadonlyMap<string, T>,
-  key: (row: T) => string, order: StableRowOrder<T>, parentKey?: (row: T) => string | undefined, addedIds?: ReadonlySet<string>): T[] {
+  key: (row: T) => string, order: StableRowOrder<T>, parentKey?: (row: T) => string | undefined, addedIds?: ReadonlySet<string>,
+  pageSize = Number.POSITIVE_INFINITY): T[] {
   const { compare, placementOf } = order;
   const positions = new Map<string, number>();
   const retained: T[] = [];
@@ -115,6 +118,18 @@ export function mergeStableRows<T>(previous: readonly T[], transport: readonly T
   const retainedIds = new Set(retained.map(key));
   const added = transport.filter((row) => !retainedIds.has(key(row)));
   const created = added.some((row) => addedIds?.has(key(row)));
+  if (placementChanged || created) {
+    const byId = (rows: readonly T[]) => new Map(rows.map((row) => [key(row), row]));
+    let rebased: T[] = [];
+    for (let start = 0; start < transport.length; start += pageSize) {
+      const page = transport.slice(start, start + pageSize);
+      rebased = mergeStableRows(rebased, page, byId([...rebased, ...page]), key, order, parentKey);
+    }
+    // An activity-displaced row has no fresh transport page. Keep it after the rebuilt prefix rather than dropping it.
+    const inTransport = new Set(transport.map(key));
+    const displaced = retained.filter((row) => !inTransport.has(key(row)));
+    return displaced.length ? mergeStableRows(rebased, displaced, byId([...rebased, ...displaced]), key, order, parentKey) : rebased;
+  }
   const combined = [...retained, ...added];
   const groups = parentKey ? nestedGroups(nestUnderParents(combined, key, parentKey)) : combined.map((row) => [row]);
   const placed = groups.map((rows) => {
@@ -122,7 +137,7 @@ export function mergeStableRows<T>(previous: readonly T[], transport: readonly T
     for (const row of rows) position = Math.min(position, positions.get(key(row)) ?? Number.POSITIVE_INFINITY);
     return { rows, position };
   });
-  const ordered = placementChanged || created ? placed.sort((a, b) => compare(a.rows[0]!, b.rows[0]!)) : [
+  const ordered = [
     ...placed.filter((group) => Number.isFinite(group.position)).sort((a, b) => a.position - b.position),
     ...placed.filter((group) => !Number.isFinite(group.position)).sort((a, b) => compare(a.rows[0]!, b.rows[0]!)),
   ];

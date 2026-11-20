@@ -103,6 +103,23 @@ describe("mergeStableRows", () => {
     expect(ids(mergeStableRows([], swapped, candidates(swapped), key, byPlace))).toEqual(ids(after));
   });
 
+  it("rebuilds a structural move one transport page at a time, as a reload does", () => {
+    const byPlace = { compare: (a: Row, b: Row) => a.place! - b.place!, placementOf };
+    const transport = [6, 5, 4, 3, 2, 1].map((place) => r(`r${place}`, undefined, place));
+    const merge = (previous: readonly Row[], window: readonly Row[], all: readonly Row[]) => mergeStableRows(
+      previous, window, candidates([...all]), key, byPlace, undefined, undefined, 2);
+    const first = merge([], transport.slice(0, 2), transport.slice(0, 2));
+    const second = merge(first, transport.slice(0, 4), transport.slice(0, 4));
+    expect(ids(second)).toEqual(["r5", "r6", "r3", "r4"]);
+
+    const moved = transport.slice(0, 4).map((row) => row.id === "r6" ? { ...row, place: 0 } : row);
+    const after = merge(second, moved, moved);
+    const freshFirst = merge([], moved.slice(0, 2), moved.slice(0, 2));
+    const fresh = merge(freshFirst, moved, moved);
+    expect(ids(after)).toEqual(["r6", "r5", "r3", "r4"]);
+    expect(ids(after)).toEqual(ids(fresh));
+  });
+
   it("inserts a created first tab without requiring the loaded tabs' indices to change", () => {
     const byPlace = { compare: (a: Row, b: Row) => a.place! - b.place!, placementOf };
     const initial = [r("a", undefined, 1), r("b", undefined, 2)];
