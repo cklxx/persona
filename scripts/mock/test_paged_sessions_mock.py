@@ -40,6 +40,7 @@ class PagedSessionsMockTests(unittest.TestCase):
             self.assertEqual(sum(counts[dimension].values()), len(full))
         first = self.read(summary=1, limit=2)
         self.assertEqual(len(first["sessions"]), 2)
+        self.assertEqual(first["added"], [])
         self.assertTrue(first["has_more"])
         self.assertIn("waiting", first["sessions"][0])
         second = self.read(summary=1, limit=2, cursor=first["next_cursor"])
@@ -106,6 +107,7 @@ class PagedSessionsMockTests(unittest.TestCase):
         delta = self.read(summary=1, since=first["revision"])
         self.assertEqual(delta["sessions"], [])
         self.assertEqual(delta["remove"], [])
+        self.assertEqual(delta["added"], [])
         self.assertFalse(delta["has_more"])
         for query, code in (({"since": ["expired"]}, "revision_expired"), ({"cursor": ["expired:2"]}, "cursor_expired")):
             body, status = hub.paged_sessions(query)

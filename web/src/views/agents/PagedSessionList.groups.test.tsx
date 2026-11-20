@@ -337,7 +337,7 @@ describe("stable presentation over paged transport (#11801)", () => {
       const q = params(path as string);
       if (q.has("counts")) return Promise.resolve(countsOf(fixture.rows)) as ReturnType<typeof api>;
       if (q.has("since")) {
-        return Promise.resolve({ sessions: q.get("since") === fixture.revision ? [] : fixture.delta, remove: [], has_more: false,
+        return Promise.resolve({ sessions: q.get("since") === fixture.revision ? [] : fixture.delta, remove: [], added: [], has_more: false,
           total: fixture.rows.length, revision: fixture.revision }) as ReturnType<typeof api>;
       }
       const cursor = q.get("cursor");
@@ -396,7 +396,7 @@ describe("stable presentation over paged transport (#11801)", () => {
       await vi.advanceTimersByTimeAsync(2_100);
     });
 
-    expect(shown()).toEqual(before); // newly active, but an old row: a delta without `added` does not admit it
+    expect(shown()).toEqual(before); // newly active, but an old row: the current hub's empty `added` does not admit it
     expect(document.activeElement).toBe(focused);
   });
 

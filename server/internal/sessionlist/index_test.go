@@ -100,7 +100,7 @@ func TestExactIdentityLookup(t *testing.T) {
 func TestOrderingAndZeroValue(t *testing.T) {
 	var i Index
 	empty := mustQuery(t, &i, Options{})
-	if empty.Total != 0 || empty.HasMore || empty.Sessions == nil || empty.Remove == nil || empty.Revision == "" {
+	if empty.Total != 0 || empty.HasMore || empty.Sessions == nil || empty.Remove == nil || empty.Added == nil || empty.Revision == "" {
 		t.Fatalf("empty = %+v", empty)
 	}
 	before := i.Revision()
@@ -129,7 +129,7 @@ func TestOrderingAndZeroValue(t *testing.T) {
 		t.Fatal("caller changed cached counts")
 	}
 	wire, err := json.Marshal(empty)
-	if err != nil || !strings.Contains(string(wire), `"sessions":[]`) || !strings.Contains(string(wire), `"remove":[]`) || strings.Contains(string(wire), "next_cursor") {
+	if err != nil || !strings.Contains(string(wire), `"sessions":[]`) || !strings.Contains(string(wire), `"remove":[]`) || !strings.Contains(string(wire), `"added":[]`) || strings.Contains(string(wire), "next_cursor") {
 		t.Fatalf("wire = %s, %v", wire, err)
 	}
 }

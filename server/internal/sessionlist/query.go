@@ -56,7 +56,7 @@ func (i *Index) Query(options Options) (Page, error) {
 		}
 	}
 	end := min(offset+o.Limit, len(r.events))
-	p := Page{Sessions: make([]any, 0, end-offset), Remove: make([]string, 0), Revision: r.counts.Revision, Total: r.counts.Total, HasMore: end < len(r.events)}
+	p := Page{Sessions: make([]any, 0, end-offset), Remove: make([]string, 0), Added: make([]string, 0), Revision: r.counts.Revision, Total: r.counts.Total, HasMore: end < len(r.events)}
 	if o.Search != "" {
 		p.SearchHits = make(map[string]SearchHit, end-offset)
 	}

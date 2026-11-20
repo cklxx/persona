@@ -58,8 +58,9 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-async function show(withParents = true) {
+async function show(withParents = true, stable = false) {
   await list.load();
+  if (stable) list.setPresentation({ compare: (a, b) => a.id.localeCompare(b.id), parentOf });
   await act(async () => root.render(<PagedSessionList root={list} path="/sessions" identity={identity} compare={compare} event="sessions_list"
     activeAt={activeAt} needsYou={needsYou} parentOf={withParents ? parentOf : undefined} renderRow={(r) => <span>{r.id}</span>} />));
 }
@@ -91,10 +92,10 @@ describe("side sessions in the paged list (#5935)", () => {
     expect(shown()).toContain("btw-2");
   });
 
-  it("never splits a group with Earlier: the group is as recent as its newest member", async () => {
+  it("never splits a group with Earlier after structural ordering: its newest side member still leads its activity", async () => {
     localStorage.setItem("persona.agentActiveWindow", "1d");
-    await show();
-    // main is two days old, but its side chat moved an hour ago: the group stays in the recent part
+    await show(true, true);
+    // main is two days old and sorts before its side chats, but its side chat moved an hour ago: the group stays recent
     expect(shown()).toEqual(["main", "btw-1", "btw-2", "other"]);
     const header = host.querySelector<HTMLElement>("[data-earlier] button");
     expect(header?.textContent).toBe(`${t("paged-agents.earlier")}1`);

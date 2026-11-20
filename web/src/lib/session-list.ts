@@ -67,7 +67,8 @@ export interface ListCounts {
 export interface ListPage<T> {
   sessions: T[];
   remove: string[];
-  /** Delta rows created after the baseline, not existing rows that only changed or entered the filter. */
+  /** Delta rows created after the baseline, not existing rows that only changed or entered the filter. Current hubs
+   *  always send the array, including empty; an older hub omits it. */
   added?: string[];
   has_more: boolean;
   next_cursor?: string;
@@ -118,7 +119,7 @@ export interface SessionListOptions<T> {
  *  the one it reaches, and the rows changed in between as `[machine_id, session_id]`. */
 export interface ListChangeHint { revision?: unknown; since?: unknown; changed?: unknown }
 
-type PreparedDelta<T> = { overlay: Map<string, T | null>; changes: Map<string, T | null>; added: Set<string>; revision: string; total: number };
+type PreparedDelta<T> = { overlay: Map<string, T | null>; changes: Map<string, T | null>; added?: Set<string>; revision: string; total: number };
 type Work = { generation: number; load: boolean; more: boolean; kind: "load" | "more" | null; promise?: Promise<void> };
 class Rebaseline extends Error {}
 
@@ -155,6 +156,9 @@ export class SessionList<T> {
   private onRefresh?: () => void;
   private presentation?: SessionListPresentation<T>;
   private presented: readonly T[] = [];
+  // Remember admission after a filter exit removes the row. A later filter entrance is not a creation in the hub's
+  // `added` markers, but an identity already presented in this baseline belongs in the list again.
+  private admitted = new Set<string>();
   private transport: T[] = [];
 
   constructor(
@@ -292,6 +296,7 @@ export class SessionList<T> {
     this.overlay = new Map();
     this.prefixSize = PAGE_SIZE;
     this.presented = [];
+    this.admitted = new Set();
     this.transport = [];
     this.publish(this.empty());
   }
@@ -453,7 +458,7 @@ export class SessionList<T> {
     const since = this.checkpoint!;
     const overlay = new Map(this.overlay);
     const changes = new Map<string, T | null>();
-    const added = new Set<string>();
+    let added: Set<string> | undefined = new Set();
     let cursor: string | undefined;
     let target = since;
     let first = true;
@@ -480,7 +485,10 @@ export class SessionList<T> {
         overlay.set(id, row);
         changes.set(id, row);
       }
-      for (const id of page.added ?? []) added.add(this.removeIdentity(id));
+      // Current hubs send an array on every delta page, including an empty one. Absence is the older-hub capability
+      // gap, not an empty set: retain the legacy behavior and admit the delta's new transport identities.
+      if (Array.isArray(page.added)) for (const id of page.added) added?.add(this.removeIdentity(id));
+      else added = undefined;
       if (overlay.size > JOURNAL_LIMIT) throw new Rebaseline();
       cursor = page.has_more ? page.next_cursor : undefined;
       if (cursor && cursors.has(cursor)) throw new Error(t("paged-agents.repeated_cursor"));
@@ -574,7 +582,9 @@ export class SessionList<T> {
     this.transport = this.stabilize(transport);
     if (!this.presentation) return this.transport;
     if (resetPresentation) this.presented = [];
-    this.presented = mergeStableRows(this.presented, transport, candidates, this.identity, this.presentation, this.presentation.parentOf, added);
+    const admitted = added === undefined ? undefined : new Set([...added, ...this.admitted]);
+    this.presented = mergeStableRows(this.presented, transport, candidates, this.identity, this.presentation, this.presentation.parentOf, admitted);
+    for (const row of this.presented) this.admitted.add(this.identity(row));
     return this.stabilize(this.presented);
   }
 

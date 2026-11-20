@@ -145,4 +145,14 @@ describe("mergeStableRows", () => {
     const ordered = mergeStableRows([], rows, candidates(rows), key, byId, parentKey);
     expect(ids(ordered)).toEqual(["p", "s1", "s2", "q", "z"]);
   });
+
+  it("keeps the newest side member as activity lead after structural ordering", () => {
+    const parent = { ...r("p", undefined, 1), activity: 100 };
+    const side = { ...r("s", "p", 2), activity: 200 };
+    const transport = [side, parent];
+    const presented = mergeStableRows([], transport, candidates(transport), key, byPlace, parentKey);
+    expect(presented).toEqual([parent, side]);
+    const after = nestUnderParents(presented, key, parentKey, (row) => row.activity ?? 0);
+    expect(after.lead.get(parent)).toBe(side);
+  });
 });

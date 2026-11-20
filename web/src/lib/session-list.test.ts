@@ -72,6 +72,30 @@ describe("SessionList baseline, filters and structural sharing", () => {
     expect(requestParams().at(-1)?.since).toBe("baseline");
   });
 
+  it("admits a created row from an older hub whose delta omits added markers (#11801)", async () => {
+    const options: SessionListOptions<Row> = { counts: false, presentation: { compare: (a, b) => a.title.localeCompare(b.title) } };
+    pages.mockResolvedValueOnce(page([row("a", 2, "1"), row("b", 1, "2")], { revision: "r0", total: 2 }))
+      .mockResolvedValueOnce(page([row("created", 3, "0")], { revision: "r1", total: 3 }));
+    const list = make(undefined, options);
+    await list.load();
+    await list.load();
+    expect(ids(list)).toEqual(["created", "a", "b"]);
+  });
+
+  it("readmits a presented identity after a filter exit, not another filter entrant (#11801)", async () => {
+    const options: SessionListOptions<Row> = { counts: false, presentation: { compare: (a, b) => a.title.localeCompare(b.title) } };
+    pages.mockResolvedValueOnce(page([row("a", 1, "1")], { revision: "r0", total: 1 }))
+      .mockResolvedValueOnce(page([], { revision: "r1", total: 0, remove: ["a"], added: [] }))
+      .mockResolvedValueOnce(page([row("other", 3, "0"), row("a", 2, "1-returned")], { revision: "r2", total: 2, added: [] }));
+    const list = make(undefined, options);
+    await list.load();
+    await list.load();
+    expect(ids(list)).toEqual([]);
+    await list.load();
+    expect(ids(list)).toEqual(["a"]);
+    expect(list.getSnapshot().rows[0]?.title).toBe("1-returned");
+  });
+
   it("keeps a two-page slot swap in the same order after a fresh baseline and the same reads (#11801)", async () => {
     let source = Array.from({ length: 120 }, (_, i) => row(`r${i + 1}`, i + 1, String(i + 1)));
     let delta: Row[] = [];

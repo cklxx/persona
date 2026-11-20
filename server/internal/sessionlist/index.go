@@ -152,8 +152,8 @@ type Page struct {
 	Sessions   []any                `json:"sessions"`
 	Remove     []string             `json:"remove"`
 	// Added identifies rows created after a delta's baseline, not existing rows that only changed or entered its filter.
-	// It lets stable client presentations place a new tab without mistaking an older, newly active row for it (#11801).
-	Added      []string `json:"added,omitempty"`
+	// It is always an array so a client can distinguish no creations from an older hub that omits the field (#11801).
+	Added      []string `json:"added"`
 	HasMore    bool     `json:"has_more"`
 	NextCursor string   `json:"next_cursor,omitempty"`
 	Revision   string   `json:"revision"`
