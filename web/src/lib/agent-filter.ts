@@ -101,19 +101,26 @@ export function isSpaceMuted(sp: SpaceLike, mutes: AgentMutes): boolean {
   return mutes.spaces.includes(`${sp.machineId}/${sp.name}`);
 }
 
+export interface SpaceArrangement<T extends SpaceLike> { active: T[]; idle: T[] }
+
 /** Which spaces lead and which fold into "Idle spaces". Pinned spaces (not muted) lead; then the busy ones, the muted
  * busy ones after them, each in the order given (herdr's); quiet ones fold. Under a quick filter every space it leaves
- * is listed in that same stable order and none folds. */
-export function arrangeSpaces<T extends SpaceLike>(spaces: T[], o: { pins: AgentPins; mutes: AgentMutes; filtered: boolean; busy: (sp: T) => boolean }): { active: T[]; idle: T[] } {
+ * is listed in that same stable order and none folds. Once listed, a space keeps its section across activity updates:
+ * `previous` fixes that membership while the current session objects still update its rows in place (#11801). */
+export function arrangeSpaces<T extends SpaceLike>(spaces: T[], o: { pins: AgentPins; mutes: AgentMutes; filtered: boolean; busy: (sp: T) => boolean; previous?: SpaceArrangement<T> }): SpaceArrangement<T> {
   const lead = (sp: T) => isSpacePinned(sp.machineId, sp.name, o.pins) && !isSpaceMuted(sp, o.mutes);
   const pinned = spaces.filter(lead);
   const rest = spaces.filter((sp) => !lead(sp));
   if (o.filtered) {
     return { active: [...pinned, ...rest], idle: [] };
   }
-  const busy = rest.filter(o.busy);
+  const before = new Map<string, boolean>();
+  for (const sp of o.previous?.active ?? []) before.set(sp.key, true);
+  for (const sp of o.previous?.idle ?? []) before.set(sp.key, false);
+  const busyNow = (sp: T) => before.get(sp.key) ?? o.busy(sp);
+  const busy = rest.filter(busyNow);
   return {
     active: [...pinned, ...busy.filter((sp) => !isSpaceMuted(sp, o.mutes)), ...busy.filter((sp) => isSpaceMuted(sp, o.mutes))],
-    idle: rest.filter((sp) => !o.busy(sp)),
+    idle: rest.filter((sp) => !busyNow(sp)),
   };
 }

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { machineTreeByUpdate } from "./agent-sort";
-import { buildMachineTree, machineSessionOrder } from "./herdr-tree";
+import { buildMachineTree, machineSessionOrder, machineSessionPresentation } from "./herdr-tree";
 import { catalogGroups, countGroups, type SessionCatalog } from "./session-groups";
+import { mergeStableRows } from "./side-sessions";
 import type { ListCounts } from "./session-list";
 import type { Machine, Session } from "./types";
 
@@ -52,6 +53,38 @@ describe("stable sidebar order (#11801)", () => {
     expect(ids(initial)).toEqual(["a1", "a2", "b1", "c1"]);
     expect(ids(refreshed)).toEqual(ids(initial));
     expect(ids([...initial].reverse())).toEqual(ids(initial));
+  });
+
+  it("reconciles real herdr slot and pane moves, created tabs and reloads without following activity", () => {
+    const rows = [
+      { ...agent("a1", "mac", "alpha", "tab-a", 0, 1), pane_index: 0 },
+      { ...agent("a2", "mac", "alpha", "tab-a", 0, 2), pane_index: 1 },
+      { ...agent("b1", "mac", "alpha", "tab-b", 1, 3), pane_index: 0 },
+    ];
+    const order = machineSessionPresentation(machines);
+    const key = (row: Session) => row.session_id;
+    const ids = (rows: readonly Session[]) => rows.map(key);
+    const merge = (previous: readonly Session[], current: Session[], added?: ReadonlySet<string>) => mergeStableRows(
+      previous, [...current].reverse(), new Map(current.map((row) => [key(row), row])), key, order, undefined, added);
+
+    const initialPresentation = merge([], rows);
+    expect(ids(initialPresentation)).toEqual(["a1", "a2", "b1"]);
+    const active = rows.map((row) => row.session_id === "a1" ? { ...row, state: "working" as const, status: "working", updated_at: "2026-01-01T10:00:00Z" } : row);
+    const afterActivity = merge(initialPresentation, active);
+    expect(ids(afterActivity)).toEqual(["a1", "a2", "b1"]);
+    expect(afterActivity[0]!.state).toBe("working");
+
+    const moved = afterActivity.map((row) => row.slot_id === "tab-a"
+      ? { ...row, slot_index: 1, pane_index: row.session_id === "a1" ? 1 : 0 }
+      : { ...row, slot_index: 0 });
+    const afterMove = merge(afterActivity, moved);
+    expect(ids(afterMove)).toEqual(["b1", "a2", "a1"]);
+    expect(ids(merge([], moved))).toEqual(ids(afterMove));
+
+    const created = { ...agent("first", "mac", "alpha", "aa-new", 0, 4), pane_index: 0 };
+    const withFirst = [...moved, created];
+    expect(ids(merge(afterMove, withFirst, new Set(["first"])))).toEqual(["first", "b1", "a2", "a1"]);
+    expect(ids(merge([], withFirst))).toEqual(["first", "b1", "a2", "a1"]);
   });
 
   it("does not move catalog projects or workspaces when their counts or hub order changes", () => {

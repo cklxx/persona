@@ -151,10 +151,13 @@ type Page struct {
 	SearchHits map[string]SearchHit `json:"search_hits,omitempty"`
 	Sessions   []any                `json:"sessions"`
 	Remove     []string             `json:"remove"`
-	HasMore    bool                 `json:"has_more"`
-	NextCursor string               `json:"next_cursor,omitempty"`
-	Revision   string               `json:"revision"`
-	Total      int                  `json:"total"`
+	// Added identifies rows created after a delta's baseline, not existing rows that only changed or entered its filter.
+	// It lets stable client presentations place a new tab without mistaking an older, newly active row for it (#11801).
+	Added      []string `json:"added,omitempty"`
+	HasMore    bool     `json:"has_more"`
+	NextCursor string   `json:"next_cursor,omitempty"`
+	Revision   string   `json:"revision"`
+	Total      int      `json:"total"`
 }
 
 // Counts describes the complete filtered membership, ignoring page size.
@@ -236,6 +239,7 @@ type event struct {
 	id      string
 	updated time.Time
 	value   *record // nil means a removal
+	added   bool    // created after a delta's baseline; full pages and filter entrances leave this false
 }
 
 type result struct {

@@ -13,7 +13,7 @@ import { SectionList } from "../../lib/section-list";
 import { groupMachines, holdsPlace, JUST_FINISHED_KEY, type GroupDimension, type SessionGroup, type SessionPlace } from "../../lib/session-groups";
 import { onShownHint } from "../../lib/shown-hints";
 import { useFolded } from "../../lib/use-folded";
-import { nestUnderParents } from "../../lib/side-sessions";
+import { nestUnderParents, type StableRowOrder } from "../../lib/side-sessions";
 import { Button } from "../../ui/atoms";
 import { Icon } from "../../ui/icons";
 import { SESSION_LIST_METRICS, SESSION_LIST_STYLE } from "../../ui/list-metrics";
@@ -30,8 +30,8 @@ export interface GroupedSource<T> {
   roots: boolean;
   /** The list's own parentOf (#5935): a section draws a side session under its parent as the flat list does. */
   parentOf?: (row: T) => string | undefined;
-  /** Stable presentation order, separate from the transport's cursor order (#11801). */
-  rowOrder?: (a: T, b: T) => number;
+  /** Stable structural placement, separate from the transport's cursor order (#11801). */
+  rowOrder?: StableRowOrder<T>;
 }
 
 export interface GroupedSessionsProps<T> {
@@ -131,7 +131,7 @@ function GroupRows<T>({ group, dimension, scope, source, renderRow }: {
   // name none of its rows (#9176): with several open, each read for every agent's update anywhere.
   const follows = event === "sessions_list";
   const list = useMemo(() => new (follows ? SectionList : SessionList)<T>(path, identity, compare, undefined, removeIdentity, {
-    summary, roots, counts: false, presentation: rowOrder ? { compare: rowOrder, parentOf } : undefined,
+    summary, roots, counts: false, presentation: rowOrder ? { ...rowOrder, parentOf } : undefined,
   }), [path, identity, compare, removeIdentity, summary, roots, follows, rowOrder, parentOf]);
   // the groups are built again with every read: the list follows what they select, not which object says it
   const selected = filterQuery({ ...scope, ...group.filters }, {});

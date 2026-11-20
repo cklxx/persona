@@ -2,6 +2,7 @@
 // app's side chat, /btw question or spawned session names its parent in `parent_agent_id` (docs/protocol/protocol.md
 // "Session hierarchy"). Unlike a folded child (lib/child-sessions.ts) it keeps its row, its state and its place in every
 // count; the lists only move it under its parent, a level in. This module is the arrangement, for any row type.
+import { sameValue } from "./stable-lines";
 
 export interface Nested<T> {
   /** The rows in the order to draw them: each group where its most recent member was, its top first, then the rest. */
@@ -82,24 +83,38 @@ export function orderNestedRows<T>(nested: Nested<T>, compare: (a: T, b: T) => n
     .flatMap(([top, ...side]) => [top!, ...side.sort(compare)]);
 }
 
+/** Placement is structural data, separate from activity: `compare` draws its order and `placementOf` identifies it.
+ *  Two rows with the same identity and placement can change state, text and timestamps without moving. */
+export interface StableRowOrder<T> {
+  compare: (a: T, b: T) => number;
+  placementOf: (row: T) => unknown;
+}
+
 /**
- * Reconciles a stable presentation with the newest-first transport window. Rows already presented keep their relative
- * positions while they remain in `candidates`, even when activity pushes them out of `transport`. Newly loaded groups
- * follow them in presentation order; a second page therefore cannot insert before a selected row. Removed rows leave
- * with their candidate. Side sessions stay under their top-level parent and use the same presentation order (#11801).
+ * Reconciles a stable presentation with the newest-first transport window. Activity-only updates keep every retained
+ * row in place, even when activity pushes it out of `transport`; newly loaded pages follow in presentation order.
+ * A real placement change instead sorts the whole loaded window again, including swapped tabs and a tab inserted
+ * before them. `addedIds` is the delta's creation evidence: without it, an older row newly active in the transport is
+ * indistinguishable from a new tab and must not displace loaded rows. Removed rows leave with their candidate (#11801).
  */
 export function mergeStableRows<T>(previous: readonly T[], transport: readonly T[], candidates: ReadonlyMap<string, T>,
-  key: (row: T) => string, compare: (a: T, b: T) => number, parentKey?: (row: T) => string | undefined): T[] {
+  key: (row: T) => string, order: StableRowOrder<T>, parentKey?: (row: T) => string | undefined, addedIds?: ReadonlySet<string>): T[] {
+  const { compare, placementOf } = order;
   const positions = new Map<string, number>();
   const retained: T[] = [];
+  let placementChanged = false;
   previous.forEach((row, index) => {
     const id = key(row);
     positions.set(id, index);
     const current = candidates.get(id);
-    if (current !== undefined) retained.push(current);
+    if (current !== undefined) {
+      retained.push(current);
+      if (!sameValue(placementOf(row), placementOf(current)) || parentKey?.(row) !== parentKey?.(current)) placementChanged = true;
+    }
   });
   const retainedIds = new Set(retained.map(key));
   const added = transport.filter((row) => !retainedIds.has(key(row)));
+  const created = added.some((row) => addedIds?.has(key(row)));
   const combined = [...retained, ...added];
   const groups = parentKey ? nestedGroups(nestUnderParents(combined, key, parentKey)) : combined.map((row) => [row]);
   const placed = groups.map((rows) => {
@@ -107,7 +122,9 @@ export function mergeStableRows<T>(previous: readonly T[], transport: readonly T
     for (const row of rows) position = Math.min(position, positions.get(key(row)) ?? Number.POSITIVE_INFINITY);
     return { rows, position };
   });
-  const existing = placed.filter((group) => Number.isFinite(group.position)).sort((a, b) => a.position - b.position);
-  const incoming = placed.filter((group) => !Number.isFinite(group.position)).sort((a, b) => compare(a.rows[0]!, b.rows[0]!));
-  return [...existing, ...incoming].flatMap(({ rows: [top, ...side] }) => [top!, ...side.sort(compare)]);
+  const ordered = placementChanged || created ? placed.sort((a, b) => compare(a.rows[0]!, b.rows[0]!)) : [
+    ...placed.filter((group) => Number.isFinite(group.position)).sort((a, b) => a.position - b.position),
+    ...placed.filter((group) => !Number.isFinite(group.position)).sort((a, b) => compare(a.rows[0]!, b.rows[0]!)),
+  ];
+  return ordered.flatMap(({ rows: [top, ...side] }) => [top!, ...side.sort(compare)]);
 }

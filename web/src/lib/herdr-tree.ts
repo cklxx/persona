@@ -12,6 +12,7 @@ import type { Route, SessionView } from "./router";
 import type { AgentState, Machine, Session } from "./types";
 import { byTime } from "./times";
 import { homeKey } from "./folded-rows";
+import type { StableRowOrder } from "./side-sessions";
 
 // docs/protocol/agent-states.md "Unified states": what a folded row shows for everything under it, and which pane a tab opens on.
 const URGENCY: AgentState[] = ["needs_you", "working", "unread", "idle", "unknown", "offline"];
@@ -52,14 +53,31 @@ export function paneOrder(a: Session, b: Session): number {
 const tabPlace = (s: Session) => s.slot_index ?? Number.MAX_SAFE_INTEGER;
 const spacePlace = (s: Session) => s.space_index ?? Number.MAX_SAFE_INTEGER;
 
-/** The sidebar's stable presentation order (#11801): the hub's computers, then herdr's workspaces, tabs and panes.
- *  Activity changes a row's state and time, never its place. The paged transport keeps its own newest-first cursor order. */
-export function machineSessionOrder(machines: readonly Machine[]): (a: Session, b: Session) => number {
+/** The sidebar's stable presentation (#11801): the hub's computers, then herdr's workspaces, tabs and panes.
+ *  `placementOf` contains every ordering input and no activity field, so a paged refresh can tell a real move from a
+ *  state or timestamp update. The paged transport keeps its own newest-first cursor order. */
+export function machineSessionPresentation(machines: readonly Machine[]): StableRowOrder<Session> {
   const machinePlace = new Map(machines.map((m, i) => [m.id, i]));
   const machine = (s: Session) => machinePlace.get(s.machine_id) ?? Number.MAX_SAFE_INTEGER;
-  return (a, b) => machine(a) - machine(b) || a.machine_id.localeCompare(b.machine_id)
-    || spacePlace(a) - spacePlace(b) || (a.space_name || a.space_id || "").localeCompare(b.space_name || b.space_id || "") || (a.space_id || "").localeCompare(b.space_id || "")
-    || tabPlace(a) - tabPlace(b) || (a.slot_id || "").localeCompare(b.slot_id || "") || paneOrder(a, b);
+  const placementOf = (s: Session): readonly (number | string)[] => [
+    machine(s), s.machine_id,
+    spacePlace(s), s.space_name || s.space_id || "", s.space_id || "",
+    tabPlace(s), s.slot_id || "", placeOf(s), paneNumber(s), s.session_id,
+  ];
+  const compare = (a: Session, b: Session): number => {
+    const left = placementOf(a), right = placementOf(b);
+    for (let i = 0; i < left.length; i++) {
+      const x = left[i]!, y = right[i]!;
+      const order = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
+      if (order) return order;
+    }
+    return 0;
+  };
+  return { compare, placementOf };
+}
+
+export function machineSessionOrder(machines: readonly Machine[]): (a: Session, b: Session) => number {
+  return machineSessionPresentation(machines).compare;
 }
 
 /** The tab's "Lead" (#2320): the agent in the tab's first pane (`pane_index` 0, top left, the one the others were split

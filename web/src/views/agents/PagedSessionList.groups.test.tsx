@@ -291,7 +291,7 @@ describe("stable presentation over paged transport (#11801)", () => {
     const rankedList = new SessionList<Ranked>("/sessions", identity, transport);
     await rankedList.load();
     await act(async () => root.render(<PagedSessionList root={rankedList} path="/sessions" identity={identity} compare={transport} event="sessions_list"
-      grouping={{ dimension: "machine", bar: null, label: "Machine", rowOrder: stable }}
+      grouping={{ dimension: "machine", bar: null, label: "Machine", rowOrder: { compare: stable, placementOf: (r) => r.place } }}
       placeOf={(r) => ({ machine: r.machine, project: r.project, group: r.group })}
       renderRow={(r) => <span data-row={r.id}>{r.id}</span>} />));
     await settle();
@@ -344,7 +344,7 @@ describe("stable presentation over paged transport (#11801)", () => {
     const rankedList = new SessionList<Ranked>("/sessions", identity, transport);
     await rankedList.load();
     await act(async () => root.render(<PagedSessionList root={rankedList} path="/sessions" identity={identity} compare={transport} event="sessions_list"
-      grouping={{ dimension: "machine", bar: null, label: "Machine", rowOrder: stable }}
+      grouping={{ dimension: "machine", bar: null, label: "Machine", rowOrder: { compare: stable, placementOf: (r) => r.place } }}
       placeOf={(r) => ({ machine: r.machine, project: r.project, group: r.group })}
       renderRow={(r) => <span data-row={r.id}>{r.id}</span>} />));
     await settle();
@@ -382,6 +382,74 @@ describe("stable presentation over paged transport (#11801)", () => {
     await act(async () => more().click());
     await settle();
     expect(shown()).toEqual([...firstPage, ...range(21, 70)]);
+  });
+
+  it("applies activity, swapped slots and a new first tab, then reloads to the same placement", async () => {
+    const fixture = {
+      rows: [
+        { ...row("r1", "mac", "/big"), rank: 1, place: 1 },
+        { ...row("r2", "mac", "/big"), rank: 2, place: 2 },
+        { ...row("r3", "mac", "/big"), rank: 3, place: 3 },
+      ] as Ranked[],
+      delta: [] as Ranked[],
+      added: [] as string[],
+      revision: "r0",
+    };
+    vi.mocked(api).mockImplementation((path) => {
+      const q = params(path as string);
+      if (q.has("counts")) return Promise.resolve(countsOf(fixture.rows)) as ReturnType<typeof api>;
+      if (q.has("since")) {
+        return Promise.resolve({ sessions: q.get("since") === fixture.revision ? [] : fixture.delta, remove: [], added: fixture.added, has_more: false,
+          total: fixture.rows.length, revision: fixture.revision }) as ReturnType<typeof api>;
+      }
+      return Promise.resolve({ sessions: [...fixture.rows].sort(transport), remove: [], has_more: false,
+        total: fixture.rows.length, revision: fixture.revision }) as ReturnType<typeof api>;
+    });
+    const identity = (r: Ranked) => r.id;
+    const renderList = async (rankedList: SessionList<Ranked>) => {
+      await rankedList.load();
+      await act(async () => root.render(<PagedSessionList root={rankedList} path="/sessions" identity={identity} compare={transport} event="sessions_list"
+        grouping={{ dimension: "machine", bar: null, label: "Machine", rowOrder: { compare: stable, placementOf: (r) => r.place } }}
+        placeOf={(r) => ({ machine: r.machine, project: r.project, group: r.group })}
+        renderRow={(r) => <span data-row={r.id} data-rank={r.rank} data-place={r.place}>{r.id}</span>} />));
+      await settle();
+    };
+    const refresh = async (revision: string) => {
+      fixture.revision = revision;
+      await act(async () => {
+        hubHint();
+        await vi.advanceTimersByTimeAsync(2_100);
+      });
+    };
+    let rankedList = new SessionList<Ranked>("/sessions", identity, transport);
+    await renderList(rankedList);
+    expect(shown()).toEqual(["r1", "r2", "r3"]);
+
+    const active = { ...fixture.rows[0]!, rank: 10 };
+    fixture.rows = fixture.rows.map((r) => r.id === active.id ? active : r);
+    fixture.delta = [active];
+    await refresh("r1");
+    expect(shown()).toEqual(["r1", "r2", "r3"]);
+    expect(host.querySelector('[data-row="r1"]')!.getAttribute("data-rank")).toBe("10");
+
+    const swapped = fixture.rows.map((r) => r.id === "r1" ? { ...r, place: 2 } : r.id === "r2" ? { ...r, place: 1 } : r);
+    fixture.rows = swapped;
+    fixture.delta = swapped.filter((r) => r.id !== "r3");
+    await refresh("r2");
+    expect(shown()).toEqual(["r2", "r1", "r3"]);
+
+    const first = { ...row("r0", "mac", "/big"), rank: 20, place: 0 };
+    fixture.rows = [first, ...fixture.rows];
+    fixture.delta = fixture.rows;
+    fixture.added = ["r0"];
+    await refresh("r3");
+    expect(shown()).toEqual(["r0", "r2", "r1", "r3"]);
+
+    act(() => root.unmount());
+    root = createRoot(host);
+    rankedList = new SessionList<Ranked>("/sessions", identity, transport);
+    await renderList(rankedList);
+    expect(shown()).toEqual(["r0", "r2", "r1", "r3"]);
   });
 });
 

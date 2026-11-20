@@ -391,4 +391,59 @@ describe("stable machine, workspace and tab order (#11801)", () => {
     await render();
     expect(order()).toEqual(expected);
   });
+
+  it("keeps By project workspaces in their active or Idle section during activity, hover and focus", async () => {
+    localStorage.setItem("persona.agentGrouping", "space");
+    const placed = (id: string, space: string, state: "working" | "idle" | "needs_you"): Session => ({
+      machine_id: "mac", session_id: id, title: id, cwd: `/${space}`, status: state === "needs_you" ? "idle" : state, state,
+      updated_at: "2026-01-01T01:00:00Z", space_id: space, space_name: space, space_index: space === "alpha" ? 0 : 1,
+      slot_id: `${space}-tab`, slot_index: 0,
+    });
+    let sessions = [placed("a1", "alpha", "working"), placed("b1", "beta", "idle")];
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      const path = new URL(url, "http://hub.example.com").pathname;
+      const body = path.endsWith("/sessions") ? { sessions } : path.endsWith("/machines") ? { machines: [mac] } : {};
+      return Promise.resolve(new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } }));
+    }));
+    await refresh();
+    await render();
+    const headings = () => [...agentsBlock().querySelectorAll<HTMLButtonElement>("[data-sidebar-group-heading] button[aria-expanded]")];
+    const heading = (name: string) => headings().find((button) => button.textContent?.includes(name));
+    const idleName = () => t("sidebar.idle_spaces", { count: 1 });
+    expect(heading("alpha")).toBeDefined();
+    expect(heading("beta")).toBeUndefined();
+    expect(heading(idleName())).toBeDefined();
+
+    // A dimension filter temporarily unfolds every match. Clearing it restores the membership, not the filtered display.
+    act(() => filterAgentList("machine:mac"));
+    await flush();
+    expect(heading("beta")).toBeDefined();
+    expect(heading(idleName())).toBeUndefined();
+    act(() => filterAgentList(""));
+    await flush();
+    expect(heading("alpha")).toBeDefined();
+    expect(heading("beta")).toBeUndefined();
+    expect(heading(idleName())).toBeDefined();
+
+    await act(async () => heading(idleName())!.click());
+    await flush();
+    expect(agentsBlock().querySelector('a[href="/s/mac/b1"]')).not.toBeNull();
+
+    const alpha = agentsBlock().querySelector<HTMLAnchorElement>('a[href="/s/mac/a1"]')!;
+    act(() => {
+      alpha.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      alpha.focus();
+      sessions = [placed("a1", "alpha", "idle"), placed("b1", "beta", "needs_you")];
+      upsertSession(sessions[0]!);
+      upsertSession(sessions[1]!);
+    });
+    await flush();
+    expect(heading("alpha")).toBeDefined();
+    expect(heading("beta")).toBeUndefined();
+    expect(heading(idleName())).toBeDefined();
+    expect(agentsBlock().querySelector<HTMLAnchorElement>('a[href="/s/mac/a1"]')).toBe(alpha);
+    expect(alpha.querySelector('[data-state="idle"]')).not.toBeNull();
+    expect(agentsBlock().querySelector('a[href="/s/mac/b1"] [data-state="needs_you"]')).not.toBeNull();
+    expect(document.activeElement).toBe(alpha);
+  });
 });

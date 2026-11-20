@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { mergeStableRows, nestUnderParents, orderNestedRows } from "./side-sessions";
 
-type Row = { id: string; parent?: string };
-const r = (id: string, parent?: string): Row => ({ id, parent });
+type Row = { id: string; parent?: string; place?: number; activity?: number };
+const r = (id: string, parent?: string, place?: number): Row => ({ id, parent, place });
 const key = (x: Row) => x.id;
 const parentKey = (x: Row) => x.parent;
 const ids = (rows: readonly Row[]) => rows.map(key);
@@ -75,19 +75,54 @@ describe("nestUnderParents", () => {
 
 describe("mergeStableRows", () => {
   const compare = (a: Row, b: Row) => a.id.localeCompare(b.id);
+  const placementOf = (row: Row) => row.place ?? row.id;
+  const order = { compare, placementOf };
   const candidates = (rows: Row[]) => new Map(rows.map((row) => [key(row), row]));
 
   it("retains a displaced row but removes one whose candidate is gone", () => {
     const initial = [r("b"), r("a")];
-    const presented = mergeStableRows([], initial, candidates(initial), key, compare);
+    const presented = mergeStableRows([], initial, candidates(initial), key, order);
     expect(ids(presented)).toEqual(["a", "b"]);
 
     const withNew = [r("c"), ...initial];
-    const retained = mergeStableRows(presented, [r("c"), r("b")], candidates(withNew), key, compare);
+    const retained = mergeStableRows(presented, [r("c"), r("b")], candidates(withNew), key, order);
     expect(ids(retained)).toEqual(["a", "b", "c"]);
 
     const withoutA = withNew.filter((row) => row.id !== "a");
-    const removed = mergeStableRows(retained, [r("c"), r("b")], candidates(withoutA), key, compare);
+    const removed = mergeStableRows(retained, [r("c"), r("b")], candidates(withoutA), key, order);
     expect(ids(removed)).toEqual(["b", "c"]);
+  });
+
+  it("applies swapped herdr slots and matches a fresh reload", () => {
+    const byPlace = { compare: (a: Row, b: Row) => a.place! - b.place!, placementOf };
+    const initial = [r("a", undefined, 0), r("b", undefined, 1)];
+    const presented = mergeStableRows([], initial, candidates(initial), key, byPlace);
+    const swapped = [r("a", undefined, 1), r("b", undefined, 0)];
+    const after = mergeStableRows(presented, swapped, candidates(swapped), key, byPlace);
+    expect(ids(after)).toEqual(["b", "a"]);
+    expect(ids(mergeStableRows([], swapped, candidates(swapped), key, byPlace))).toEqual(ids(after));
+  });
+
+  it("inserts a created first tab without requiring the loaded tabs' indices to change", () => {
+    const byPlace = { compare: (a: Row, b: Row) => a.place! - b.place!, placementOf };
+    const initial = [r("a", undefined, 1), r("b", undefined, 2)];
+    const presented = mergeStableRows([], initial, candidates(initial), key, byPlace);
+    const inserted = [r("new", undefined, 0), ...initial];
+    expect(ids(mergeStableRows(presented, inserted, candidates(inserted), key, byPlace, undefined, new Set(["new"])))).toEqual(["new", "a", "b"]);
+    // The same row arriving only because it became active is an old, unloaded row and stays behind the loaded prefix.
+    expect(ids(mergeStableRows(presented, inserted, candidates(inserted), key, byPlace))).toEqual(["a", "b", "new"]);
+  });
+
+  it("keeps activity-only refreshes and a second page from moving loaded rows", () => {
+    const byPlace = { compare: (a: Row, b: Row) => a.place! - b.place!, placementOf };
+    const initial = [r("a", undefined, 10), r("b", undefined, 20)];
+    const presented = mergeStableRows([], initial, candidates(initial), key, byPlace);
+    const active = [{ ...initial[0]!, activity: 100 }, { ...initial[1]!, activity: 200 }];
+    const refreshed = mergeStableRows(presented, [active[1]!, active[0]!], candidates(active), key, byPlace);
+    expect(ids(refreshed)).toEqual(["a", "b"]);
+    expect(refreshed[0]).toBe(active[0]);
+    expect(refreshed[1]).toBe(active[1]);
+    const secondPage = [...active, r("older", undefined, 0)];
+    expect(ids(mergeStableRows(refreshed, secondPage, candidates(secondPage), key, byPlace))).toEqual(["a", "b", "older"]);
   });
 });

@@ -102,6 +102,22 @@ describe("空间的顺序", () => {
     expect(r.active.map((x) => x.name)).toEqual(["a", "b", "安静", "c"]);
     expect(r.idle).toEqual([]);
   });
+
+  it("keeps both Idle transitions in place while each row's current state updates (#11801)", () => {
+    const busyA = sp("a", [session("a1", "working")]);
+    const quietB = sp("b", [session("b1", "idle")]);
+    const first = arrangeSpaces([busyA, quietB], { pins: NO_PINS, mutes: none, filtered: false, busy });
+    expect(first.active.map((x) => x.name)).toEqual(["a"]);
+    expect(first.idle.map((x) => x.name)).toEqual(["b"]);
+
+    const quietA = sp("a", [session("a1", "idle", { updated_at: date(10) })]);
+    const busyB = sp("b", [session("b1", "needs_you", { updated_at: date(11) })]);
+    const after = arrangeSpaces([quietA, busyB], { pins: NO_PINS, mutes: none, filtered: false, busy, previous: first });
+    expect(after.active.map((x) => x.name)).toEqual(["a"]);
+    expect(after.idle.map((x) => x.name)).toEqual(["b"]);
+    expect(after.active[0]!.sessions[0]!.state).toBe("idle");
+    expect(after.idle[0]!.sessions[0]!.state).toBe("needs_you");
+  });
 });
 
 describe("筛选栏的「botmux」显示 / 隐藏（#2786）", () => {

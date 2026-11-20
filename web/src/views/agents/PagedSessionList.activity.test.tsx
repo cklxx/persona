@@ -65,7 +65,7 @@ async function showStable(open?: string) {
   await list.load();
   await act(async () => root.render(<PagedSessionList root={list} path="/sessions" identity={identity} compare={compare} event="sessions_list"
     activeAt={activeAt} needsYou={needsYou} isOpen={open ? (r) => r.id === open : undefined}
-    grouping={{ dimension: "machine", query: "all", bar: null, label: "Machine", rowOrder: (a, b) => b.id.localeCompare(a.id) }}
+    grouping={{ dimension: "machine", query: "all", bar: null, label: "Machine", rowOrder: { compare: (a, b) => b.id.localeCompare(a.id), placementOf: (r) => r.id } }}
     renderRow={(r) => <span>{r.id}</span>} />));
 }
 const shown = () => [...host.querySelectorAll("[data-session-row]")].map((el) => el.textContent);

@@ -8,7 +8,7 @@ import { storedValue, storeValue } from "../lib/compatibility";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { t } from "../i18n";
 import { NARROW, useMedia } from "../lib/viewport";
-import { AGENT_FILTERS, agentFilter, applyFilter, arrangeSpaces, filterCounts, isSpaceMuted, matchesFilter, matchingKeys, shownFilters, unreadOf, withoutBotmux, type AgentFilter, type FilterCounts } from "../lib/agent-filter";
+import { AGENT_FILTERS, agentFilter, applyFilter, arrangeSpaces, filterCounts, isSpaceMuted, matchesFilter, matchingKeys, shownFilters, unreadOf, withoutBotmux, type AgentFilter, type FilterCounts, type SpaceArrangement } from "../lib/agent-filter";
 import { applyDimensionFilters, buildAgentFacets, DEFAULT_DIMENSION_FILTERS, hasActiveDimensionFilters, NO_FACETS, type AgentDimensionFilters } from "../lib/agent-chatlist-filter";
 import { getAgentListFilters, setAgentListFilters, useAgentListFilters } from "../lib/agent-list-filters";
 import { AgentChatListRow, AgentFilterButton, AgentFilterChips } from "./agents/AgentChatListControls";
@@ -16,7 +16,7 @@ import { agentGrouping, AGENT_GROUPINGS, type AgentGrouping, buildAgentGroups, b
 import { buildRepoMachineTree, hasWorkspacePin } from "../lib/agent-repos";
 import { useWorkspaceCatalog } from "../lib/workspace-catalog";
 import { keyedRefs } from "../lib/keyed-refs";
-import { buildMachineTree, machineSessionOrder } from "../lib/herdr-tree";
+import { buildMachineTree, machineSessionOrder, machineSessionPresentation } from "../lib/herdr-tree";
 import { selectSidebarMachines } from "../lib/sidebar-machines";
 import { machineWithHub } from "../lib/mesh";
 import { baseName, sessionTitle, tabLabel } from "../lib/format";
@@ -747,7 +747,7 @@ function BoundedAgentsBlock({ reg, hover, activeKey, go, onNewAgent, onNavigate,
   // The hub pages newest first for its cursors; the sidebar presents the same stable herdr order as the complete list.
   const listMenu = useMenu();
   const machineOrder = useMemo(() => machines.map((m) => m.id), [machines]);
-  const rowOrder = useMemo(() => machineSessionOrder(machines), [machines]);
+  const rowOrder = useMemo(() => machineSessionPresentation(machines), [machines]);
   const listItems = agentListItems({ archives, hover, onNavigate });
   const pagedGrouping = useMemo(() => ({
     dimension: PAGED_DIMENSION[grouping],
@@ -985,11 +985,15 @@ function LegacyAgentsBlock({ reg, hover, activeKey, go, onNewAgent, onNavigate, 
   const closeMarkSeen = useCallback(() => setConfirmSeen(null), []);
   const clearKept = useCallback(() => setKept(new Set()), []);
 
-  // a space with nothing to look at (every agent seen and waiting, none awaiting your reply) goes to "Idle spaces", like
-  // the app; the open conversation's space stays where it is so the row under the pointer doesn't move away
+  // A space's first presentation classifies it. Later activity updates its rows in place, including while one is
+  // hovered or focused; it never moves the workspace between the active list and "Idle spaces" (#11801).
+  const previousSpaces = useRef<SpaceArrangement<Space> | undefined>(undefined);
   const busy = (sp: Space) => sp.sessions.some((s) => !isQuiet(s, mutes) || activeKey === `s:${s.machine_id}/${s.session_id}`);
   // pinned spaces lead; under a quick filter nothing folds into "Idle spaces"
-  const { active, idle } = arrangeSpaces(spaces, { pins, mutes, filtered, busy });
+  const arrangedSpaces = arrangeSpaces(spaces, { pins, mutes, filtered, busy, previous: previousSpaces.current });
+  // A temporary filter lists every match above Idle; it must not turn that display into the remembered membership.
+  useLayoutEffect(() => { if (!filtered) previousSpaces.current = arrangedSpaces; }, [arrangedSpaces, filtered]);
+  const { active, idle } = arrangedSpaces;
   const tree = { machines, reg, hover, activeKey, go, mutes, onSpaceMenu, onRowMenu, onNodeMenu, onNavigate };
 
   // the list menu, the paged list's too (agentListItems); with nothing in it the menu's button goes

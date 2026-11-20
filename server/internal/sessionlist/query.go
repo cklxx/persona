@@ -70,6 +70,9 @@ func (i *Index) Query(options Options) (Page, error) {
 			value = e.value.item.Summary
 		}
 		p.Sessions = append(p.Sessions, clone(value))
+		if e.added {
+			p.Added = append(p.Added, e.id)
+		}
 		if o.Search != "" {
 			ranked := r.searchHits[e.id]
 			hit := ranked.SearchHit
@@ -336,7 +339,7 @@ func (i *Index) queryResult(o Options) *result {
 			if before && reflect.DeepEqual(c.before.item, c.after.item) {
 				continue
 			}
-			r.events = append(r.events, event{id: id, updated: c.after.item.UpdatedAt, value: c.after})
+			r.events = append(r.events, event{id: id, updated: c.after.item.UpdatedAt, value: c.after, added: c.before == nil})
 		} else if before {
 			updated := c.before.item.UpdatedAt
 			if c.after != nil {

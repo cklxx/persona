@@ -1,7 +1,7 @@
 import { api, ApiError, errorText } from "./api";
 import { t } from "../i18n";
 import { sameValue } from "./stable-lines";
-import { mergeStableRows } from "./side-sessions";
+import { mergeStableRows, type StableRowOrder } from "./side-sessions";
 
 export const SESSIONS_LIST_FEATURE = "sessions_list";
 /** Asked for in the WebSocket URL: a `sessions_list` hint after a change also says the revision before it (`since`)
@@ -67,6 +67,8 @@ export interface ListCounts {
 export interface ListPage<T> {
   sessions: T[];
   remove: string[];
+  /** Delta rows created after the baseline, not existing rows that only changed or entered the filter. */
+  added?: string[];
   has_more: boolean;
   next_cursor?: string;
   revision: string;
@@ -88,9 +90,7 @@ export interface ListSnapshot<T> {
   supported: boolean | null;
 }
 
-export interface SessionListPresentation<T> {
-  /** Stable fields only: machine, workspace, tab and pane places, never activity (#11801). */
-  compare: (a: T, b: T) => number;
+export interface SessionListPresentation<T> extends StableRowOrder<T> {
   /** Keeps a side session under its loaded parent while the stable order is retained. */
   parentOf?: (row: T) => string | undefined;
 }
@@ -118,7 +118,7 @@ export interface SessionListOptions<T> {
  *  the one it reaches, and the rows changed in between as `[machine_id, session_id]`. */
 export interface ListChangeHint { revision?: unknown; since?: unknown; changed?: unknown }
 
-type PreparedDelta<T> = { overlay: Map<string, T | null>; changes: Map<string, T | null>; revision: string; total: number };
+type PreparedDelta<T> = { overlay: Map<string, T | null>; changes: Map<string, T | null>; added: Set<string>; revision: string; total: number };
 type Work = { generation: number; load: boolean; more: boolean; kind: "load" | "more" | null; promise?: Promise<void> };
 class Rebaseline extends Error {}
 
@@ -440,6 +440,7 @@ export class SessionList<T> {
     const since = this.checkpoint!;
     const overlay = new Map(this.overlay);
     const changes = new Map<string, T | null>();
+    const added = new Set<string>();
     let cursor: string | undefined;
     let target = since;
     let first = true;
@@ -466,12 +467,13 @@ export class SessionList<T> {
         overlay.set(id, row);
         changes.set(id, row);
       }
+      for (const id of page.added ?? []) added.add(this.removeIdentity(id));
       if (overlay.size > JOURNAL_LIMIT) throw new Rebaseline();
       cursor = page.has_more ? page.next_cursor : undefined;
       if (cursor && cursors.has(cursor)) throw new Error(t("paged-agents.repeated_cursor"));
       if (cursor) cursors.add(cursor);
     } while (cursor);
-    return { overlay, changes, revision: target, total };
+    return { overlay, changes, added, revision: target, total };
   }
 
   private commitDelta(generation: number, delta: PreparedDelta<T>): void {
@@ -479,7 +481,7 @@ export class SessionList<T> {
     if (!this.current(generation)) return;
     this.overlay = delta.overlay;
     this.checkpoint = delta.revision;
-    const rows = this.visible();
+    const rows = this.visible(false, delta.added);
     this.publish({ rows, total: delta.total, hasMore: !!this.cursor || this.candidateCount() > this.prefixSize });
     // Publishing may synchronously reset/switch the list through onRows or a subscriber.
     if (!this.current(generation) || !this.onDelta) return;
@@ -553,13 +555,12 @@ export class SessionList<T> {
 
   private candidateCount(): number { return this.candidates().size; }
 
-  private visible(resetPresentation = false): T[] {
+  private visible(resetPresentation = false, added?: ReadonlySet<string>): T[] {
     const candidates = this.candidates();
     const transport = [...candidates.values()].sort(this.compare).slice(0, this.prefixSize);
     if (!this.presentation) return this.stabilize(transport);
     if (resetPresentation) this.presented = [];
-    this.presented = mergeStableRows(this.presented, transport, candidates, this.identity,
-      this.presentation.compare, this.presentation.parentOf);
+    this.presented = mergeStableRows(this.presented, transport, candidates, this.identity, this.presentation, this.presentation.parentOf, added);
     return this.stabilize(this.presented);
   }
 
@@ -567,7 +568,7 @@ export class SessionList<T> {
   private complete(rows: T[]): T[] {
     if (!this.presentation) return this.stabilize(rows);
     const candidates = new Map(rows.map((row) => [this.identity(row), row]));
-    this.presented = mergeStableRows([], rows, candidates, this.identity, this.presentation.compare, this.presentation.parentOf);
+    this.presented = mergeStableRows([], rows, candidates, this.identity, this.presentation, this.presentation.parentOf);
     return this.stabilize(this.presented);
   }
 

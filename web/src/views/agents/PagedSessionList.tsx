@@ -20,7 +20,7 @@ import { shortPath } from "../../lib/format";
 import { removeStoredValue, storedValue, storeValue } from "../../lib/compatibility";
 import { ACTIVE_WINDOWS, activeWindow, splitByActivity, windowStart, type ActiveWindow } from "../../lib/session-activity";
 import { useFolded } from "../../lib/use-folded";
-import { nestUnderParents, orderNestedRows } from "../../lib/side-sessions";
+import { nestUnderParents, orderNestedRows, type StableRowOrder } from "../../lib/side-sessions";
 import { sameValue } from "../../lib/stable-lines";
 import { lazyPage } from "../../lib/lazy-page";
 import { NeedsCount, ShowMoreRow } from "../SidebarSection";
@@ -76,8 +76,8 @@ export interface PagedSessionListProps<T> {
 export interface PagedGrouping<T> {
   dimension: GroupDimension; bar: ReactNode; label: string; todos?: TodoNames; quick?: PagedQuickFilters;
   /** The sections follow this scope's fold-all (useFolded). */ foldScope?: string;
-  /** Stable presentation order. The transport still uses `compare`, whose newest-first order binds the hub's cursors. */
-  rowOrder?: (a: T, b: T) => number;
+  /** Stable structural placement. The transport still uses `compare`, whose newest-first order binds the hub's cursors. */
+  rowOrder?: StableRowOrder<T>;
   /** The words ⌘K's "Filter Agents list" put on the list (#6589), sent as the search: the sidebar's list has no field of
    *  its own, `chips` says what narrows it where the field was. */
   query?: string; chips?: ReactNode;
@@ -277,7 +277,7 @@ export function PagedSessionList<T>({ root, path, identity, compare, removeIdent
   const rowOrder = grouping?.rowOrder;
   const orderedRows = useMemo((): readonly T[] => {
     if (!rowOrder) return rows;
-    return nesting ? orderNestedRows(nesting, rowOrder) : [...rows].sort(rowOrder);
+    return nesting ? orderNestedRows(nesting, rowOrder.compare) : [...rows].sort(rowOrder.compare);
   }, [rows, nesting, rowOrder]);
   // a group is as recent as its most recent member, so Earlier never splits one
   const groupActiveAt = useMemo(() => activeAt && nesting ? (row: T) => activeAt(nesting.lead.get(row) ?? row) : activeAt, [activeAt, nesting]);
