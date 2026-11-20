@@ -47,6 +47,8 @@ const setPins = (pins) => hubGet("/pins", { method: "PUT", body: JSON.stringify(
 const saved = await hubGet("/pins");
 await setPins({ spaces: [], sessions: [] });
 const counts = await hubGet("/sessions?counts=1&roots=1");
+const machines = (await hubGet("/machines")).machines ?? [];
+const machineOrder = machines.filter((m) => (counts.machine?.[m.id] ?? 0) > 0).map((m) => m.id);
 const todos = (await hubGet("/todos")).todos ?? [];
 const first = (await hubGet("/sessions?limit=1&summary=1&roots=1")).sessions?.[0];
 const titles = Object.entries(counts.todo ?? {}).filter(([id, n]) => id && n > 0).map(([id]) => todos.find((td) => td.id === id)?.title ?? id);
@@ -128,6 +130,7 @@ try {
     const pagedMenu = await listMenu("paged-menu");
     check(pagedMenu.includes("已归档的 Agent") && !pagedMenu.includes("状态优先") && !pagedMenu.includes("最近更新"), `${theme}: the paged list's ⋯ has archives and no activity sort`, pagedMenu.join(" / "));
     const sections = () => paged.locator("[data-session-group]").evaluateAll((els) => els.map((el) => ({
+      key: el.getAttribute("data-session-group") ?? "",
       name: el.querySelector("button[aria-expanded]")?.querySelector("span")?.textContent ?? el.querySelector("button[aria-expanded]")?.textContent ?? "",
       open: el.getAttribute("data-group-open") === "true",
       rows: el.querySelectorAll("[data-session-row]").length,
@@ -162,6 +165,7 @@ try {
       await page.waitForTimeout(1000);
       const groups = await sections();
       check(Boolean(await paged.count()) && groups.length > 0, `${theme}: By ${label} is paged, ${groups.length} sections`, groups.map((s) => s.name).join(", "));
+      if (label === "机器") check(groups.map((s) => s.key).join(" / ") === machineOrder.join(" / "), `${theme}: computer groups keep the hub's order, not machine-ID order`, groups.map((s) => s.key).join(" / "));
       await shot(name);
     }
     await bar.getByRole("radio", { name: /^按仓库/ }).click();

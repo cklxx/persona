@@ -43,6 +43,8 @@ export interface PagedSessionListProps<T> {
   renderRow: (row: T, within?: GroupDimension, group?: SessionGroup) => ReactNode;
   personal?: boolean;
   label?: (dimension: string, value: string) => string;
+  /** The hub's computer order, shared with the complete list; count maps alone cannot carry it (#11801). */
+  machineOrder?: readonly string[];
   /** The hub names this collection's projects and spaces (`sessions_catalog`): a repository checked out on several
    *  computers is one project, a space is one computer's. Without it the groups are the count maps' paths and ids. */
   catalog?: boolean;
@@ -112,7 +114,7 @@ export function scrollParent(el: HTMLElement | null): HTMLElement | null {
   return null;
 }
 
-export function PagedSessionList<T>({ root, path, identity, compare, removeIdentity, event, renderRow, personal = false, label, catalog = false, justFinished = false, placeOf, activeAt, needsYou, isOpen, parentOf, grouping, failureText = sameText }: PagedSessionListProps<T>) {
+export function PagedSessionList<T>({ root, path, identity, compare, removeIdentity, event, renderRow, personal = false, label, machineOrder, catalog = false, justFinished = false, placeOf, activeAt, needsYou, isOpen, parentOf, grouping, failureText = sameText }: PagedSessionListProps<T>) {
   const [query, setQuery] = useState("");
   const [typed, setTyped] = useState("");
   // the sidebar's groupings take ⌘K's words (#6589); every other list its own field's, once typing pauses
@@ -259,7 +261,7 @@ export function PagedSessionList<T>({ root, path, identity, compare, removeIdent
     if (facetScoped) setFacetAttempt((n) => n + 1);
     else void root.retry().catch(() => {});
   }, [facetScoped, root]);
-  const grouped = useSessionGroups({ dimension, catalog: cataloged, countsPath, scope: groupScope, facets, facetQuery, facetsError: facetsFailure, retryFacets, waiting: sections ? scopeNeeds : 0, event, todos: grouping?.todos, justFinished });
+  const grouped = useSessionGroups({ dimension, catalog: cataloged, countsPath, scope: groupScope, facets, facetQuery, facetsError: facetsFailure, retryFacets, waiting: sections ? scopeNeeds : 0, event, todos: grouping?.todos, justFinished, machineOrder });
   const allGroups = grouped.groups;
   // the picked group follows what the hub says of it now (a project gains a directory); gone from the scope, it stays picked
   useEffect(() => {

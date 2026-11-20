@@ -746,6 +746,7 @@ function BoundedAgentsBlock({ reg, hover, activeKey, go, onNewAgent, onNavigate,
   const setQuery = useCallback((next: AgentDimensionFilters) => setAgentListFilters({ ...getAgentListFilters(), query: next.query }), []);
   // The hub pages newest first for its cursors; the sidebar presents the same stable herdr order as the complete list.
   const listMenu = useMenu();
+  const machineOrder = useMemo(() => machines.map((m) => m.id), [machines]);
   const rowOrder = useMemo(() => machineSessionOrder(machines), [machines]);
   const listItems = agentListItems({ archives, hover, onNavigate });
   const pagedGrouping = useMemo(() => ({
@@ -775,7 +776,7 @@ function BoundedAgentsBlock({ reg, hover, activeKey, go, onNewAgent, onNavigate,
     <PagedSessionList root={runtimeAgents} path={RUNTIME_AGENTS_PATH} identity={runtimeIdentity} compare={runtimeOrder} removeIdentity={runtimeRemoval} parentOf={sideFold ? undefined : runtimeParentIdentity} event="sessions_list" grouping={pagedGrouping}
       activeAt={runtimeActiveAt} needsYou={runtimeNeedsYou} isOpen={(s) => activeKey === `s:${s.machine_id}/${s.session_id}`}
       catalog={catalog} justFinished={justFinished} placeOf={runtimePlace} failureText={agentsReadFailed}
-      label={(dimension, id) => dimension === "machine" ? machineWithHub(id, machines) : id}
+      machineOrder={machineOrder} label={(dimension, id) => dimension === "machine" ? machineWithHub(id, machines) : id}
       renderRow={(s, within) => {
         const k = `s:${s.machine_id}/${s.session_id}`;
         // under a group's heading the row leaves out what the heading says: its computer, its space, its to-do

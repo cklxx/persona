@@ -667,8 +667,8 @@ export function buildTodoAgentGroups(
   const { live } = splitAgentSessions(all, machines);
   const lookup = makeSessionLookup(live);
 
-  // order of unfinished todos
-  const openTodos = sortTodos(todos.filter((t) => !t.done_at), lookup);
+  // The To-dos page's order without live Agent rank: activity updates a group's status, not its place (#11801).
+  const openTodos = sortTodos(todos.filter((t) => !t.done_at));
 
   // map each todo to its live sessions
   const liveByKey = new Map<string, Session>();

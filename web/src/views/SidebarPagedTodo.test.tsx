@@ -220,7 +220,7 @@ describe("the sidebar's paged Agents by to-do", () => {
     await flush();
     const keys = () => sections().map((s) => s.getAttribute("data-session-group"));
     const macRows = () => rowTexts(sections().find((s) => s.getAttribute("data-session-group") === "mac")!);
-    expect(keys()).toEqual(["linux", "mac"]);
+    expect(keys()).toEqual(["mac", "linux"]);
     expect(macRows()).toEqual([expect.stringMatching(/^z-first/), expect.stringMatching(/^a-second/)]);
 
     const focused = sections().find((s) => s.getAttribute("data-session-group") === "mac")!.querySelector<HTMLAnchorElement>('a[href="/s/mac/z-first"]')!;
@@ -238,7 +238,7 @@ describe("the sidebar's paged Agents by to-do", () => {
       await vi.advanceTimersByTimeAsync(2_100);
     });
     await flush();
-    expect(keys()).toEqual(["linux", "mac"]);
+    expect(keys()).toEqual(["mac", "linux"]);
     expect(macRows()).toEqual([expect.stringMatching(/^z-first/), expect.stringMatching(/^a-second/)]);
     expect(document.activeElement).toBe(focused);
 
@@ -246,7 +246,7 @@ describe("the sidebar's paged Agents by to-do", () => {
     reset();
     root = createRoot(host);
     await render(features);
-    expect(keys()).toEqual(["linux", "mac"]);
+    expect(keys()).toEqual(["mac", "linux"]);
     expect(macRows()).toEqual([expect.stringMatching(/^z-first/), expect.stringMatching(/^a-second/)]);
   });
 });
