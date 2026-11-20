@@ -2,8 +2,6 @@
 // app's side chat, /btw question or spawned session names its parent in `parent_agent_id` (docs/protocol/protocol.md
 // "Session hierarchy"). Unlike a folded child (lib/child-sessions.ts) it keeps its row, its state and its place in every
 // count; the lists only move it under its parent, a level in. This module is the arrangement, for any row type.
-import { sameValue } from "./stable-lines";
-
 export interface Nested<T> {
   /** The rows in the order to draw them: each group where its most recent member was, its top first, then the rest. */
   rows: readonly T[];
@@ -83,63 +81,28 @@ export function orderNestedRows<T>(nested: Nested<T>, compare: (a: T, b: T) => n
     .flatMap(([top, ...side]) => [top!, ...side.sort(compare)]);
 }
 
-/** Placement is structural data, separate from activity: `compare` draws its order and `placementOf` identifies it.
- *  Two rows with the same identity and placement can change state, text and timestamps without moving. */
+/** Structural placement, separate from activity and the transport's newest-first cursor order. */
 export interface StableRowOrder<T> {
   compare: (a: T, b: T) => number;
-  placementOf: (row: T) => unknown;
 }
 
 /**
- * Reconciles a stable presentation with the newest-first transport window. Activity-only updates keep every retained
- * row in place, even when activity pushes it out of `transport`; newly loaded pages follow in presentation order.
- * A real placement change or creation rebuilds the transport one page at a time, exactly as a fresh reload does,
- * instead of promoting later pages ahead of the first. `addedIds` is the delta's creation evidence: without it, an
- * older row newly active in the transport is indistinguishable from a new tab and must not displace loaded rows.
- * Removed rows leave with their candidate (#11801). `pageSize` is the transport's page size, or infinite for a
- * complete list.
+ * Reconciles presented rows with the newest-first transport window. A previous identity remains while its candidate
+ * does. A full or paged read admits every new transport identity; a delta admits only identities the hub marks created,
+ * so an older row that merely became active does not enter the presentation. The whole union is sorted by current
+ * structural placement, with side sessions kept under their parents. Previous positions and activity never break ties
+ * or rebase rows, so identical loaded identity sets have the same order after a reload (#11801).
  */
 export function mergeStableRows<T>(previous: readonly T[], transport: readonly T[], candidates: ReadonlyMap<string, T>,
-  key: (row: T) => string, order: StableRowOrder<T>, parentKey?: (row: T) => string | undefined, addedIds?: ReadonlySet<string>,
-  pageSize = Number.POSITIVE_INFINITY): T[] {
-  const { compare, placementOf } = order;
-  const positions = new Map<string, number>();
+  key: (row: T) => string, order: StableRowOrder<T>, parentKey?: (row: T) => string | undefined, addedIds?: ReadonlySet<string>): T[] {
   const retained: T[] = [];
-  let placementChanged = false;
-  previous.forEach((row, index) => {
-    const id = key(row);
-    positions.set(id, index);
-    const current = candidates.get(id);
-    if (current !== undefined) {
-      retained.push(current);
-      if (!sameValue(placementOf(row), placementOf(current)) || parentKey?.(row) !== parentKey?.(current)) placementChanged = true;
-    }
-  });
-  const retainedIds = new Set(retained.map(key));
-  const added = transport.filter((row) => !retainedIds.has(key(row)));
-  const created = added.some((row) => addedIds?.has(key(row)));
-  if (placementChanged || created) {
-    const byId = (rows: readonly T[]) => new Map(rows.map((row) => [key(row), row]));
-    let rebased: T[] = [];
-    for (let start = 0; start < transport.length; start += pageSize) {
-      const page = transport.slice(start, start + pageSize);
-      rebased = mergeStableRows(rebased, page, byId([...rebased, ...page]), key, order, parentKey);
-    }
-    // An activity-displaced row has no fresh transport page. Keep it after the rebuilt prefix rather than dropping it.
-    const inTransport = new Set(transport.map(key));
-    const displaced = retained.filter((row) => !inTransport.has(key(row)));
-    return displaced.length ? mergeStableRows(rebased, displaced, byId([...rebased, ...displaced]), key, order, parentKey) : rebased;
+  for (const row of previous) {
+    const current = candidates.get(key(row));
+    if (current !== undefined) retained.push(current);
   }
+  const retainedIds = new Set(retained.map(key));
+  const added = transport.filter((row) => !retainedIds.has(key(row)) && (addedIds === undefined || addedIds.has(key(row))));
   const combined = [...retained, ...added];
-  const groups = parentKey ? nestedGroups(nestUnderParents(combined, key, parentKey)) : combined.map((row) => [row]);
-  const placed = groups.map((rows) => {
-    let position = Number.POSITIVE_INFINITY;
-    for (const row of rows) position = Math.min(position, positions.get(key(row)) ?? Number.POSITIVE_INFINITY);
-    return { rows, position };
-  });
-  const ordered = [
-    ...placed.filter((group) => Number.isFinite(group.position)).sort((a, b) => a.position - b.position),
-    ...placed.filter((group) => !Number.isFinite(group.position)).sort((a, b) => compare(a.rows[0]!, b.rows[0]!)),
-  ];
-  return ordered.flatMap(({ rows: [top, ...side] }) => [top!, ...side.sort(compare)]);
+  if (!parentKey) return combined.sort(order.compare);
+  return [...orderNestedRows(nestUnderParents(combined, key, parentKey), order.compare)];
 }

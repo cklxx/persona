@@ -105,9 +105,9 @@ export interface SpaceArrangement<T extends SpaceLike> { active: T[]; idle: T[] 
 
 /** Which spaces lead and which fold into "Idle spaces". Pinned spaces (not muted) lead; then the busy ones, the muted
  * busy ones after them, each in the order given (herdr's); quiet ones fold. Under a quick filter every space it leaves
- * is listed in that same stable order and none folds. A space already above Idle keeps its place when its latest
- * activity becomes quiet; current activity always brings an Idle space back above it, so waiting work is never hidden
- * by retained placement (#11801). */
+ * is listed in that same stable order and none folds. Without stored membership, `busy` derives the current layout.
+ * With `retainedActive`, membership or `busy` keeps a space above Idle; the caller limits `busy` to attention so an
+ * ordinary working transition does not move an Idle workspace (#11801). */
 export function arrangeSpaces<T extends SpaceLike>(spaces: T[], o: { pins: AgentPins; mutes: AgentMutes; filtered: boolean; busy: (sp: T) => boolean; retainedActive?: ReadonlySet<string> }): SpaceArrangement<T> {
   const lead = (sp: T) => isSpacePinned(sp.machineId, sp.name, o.pins) && !isSpaceMuted(sp, o.mutes);
   const pinned = spaces.filter(lead);

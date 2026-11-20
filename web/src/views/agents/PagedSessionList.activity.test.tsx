@@ -65,7 +65,7 @@ async function showStable(open?: string) {
   await list.load();
   await act(async () => root.render(<PagedSessionList root={list} path="/sessions" identity={identity} compare={compare} event="sessions_list"
     activeAt={activeAt} needsYou={needsYou} isOpen={open ? (r) => r.id === open : undefined}
-    grouping={{ dimension: "machine", query: "all", bar: null, label: "Machine", rowOrder: { compare: (a, b) => b.id.localeCompare(a.id), placementOf: (r) => r.id } }}
+    grouping={{ dimension: "machine", query: "all", bar: null, label: "Machine", rowOrder: { compare: (a, b) => b.id.localeCompare(a.id) } }}
     renderRow={(r) => <span>{r.id}</span>} />));
 }
 const shown = () => [...host.querySelectorAll("[data-session-row]")].map((el) => el.textContent);
@@ -129,6 +129,46 @@ describe("Active within", () => {
     expect(shown()).toEqual(["c", "b", "a", "e", "d"]);
     expect(header()!.querySelector("button")!.textContent).toBe(`${t("paged-agents.earlier")}37`);
     expect(header()!.querySelector("button + span")?.textContent).toBe(`3 ${t("sidebar.needs_you_suffix", { count: 3 })}`);
+  });
+
+  it("shows Earlier for a retained older row when the transport prefix is entirely recent", async () => {
+    localStorage.setItem("persona.agentActiveWindow", "1d");
+    const initial = [
+      ...Array.from({ length: 49 }, (_, i) => row(`r${String(i).padStart(2, "0")}`, (i + 1) / 100)),
+      row("old", 30),
+    ];
+    let current = initial;
+    let delta: Row[] = [];
+    let revision = "r0";
+    vi.mocked(api).mockImplementation((path) => {
+      const q = new URL(path, "https://example.com").searchParams;
+      if (q.has("counts")) return Promise.resolve({ ...counts, total: current.length }) as ReturnType<typeof api>;
+      if (q.has("since")) return Promise.resolve({ sessions: q.get("since") === revision ? [] : delta, remove: [], added: [], has_more: false, total: current.length, revision }) as ReturnType<typeof api>;
+      return Promise.resolve({ sessions: [...current].sort(compare).slice(0, 50), remove: [], has_more: false, total: current.length, revision }) as ReturnType<typeof api>;
+    });
+    await list.load();
+    list.setPresentation({ compare: (a, b) => b.id.localeCompare(a.id) });
+    await act(async () => root.render(<PagedSessionList root={list} path="/sessions" identity={identity} compare={compare} event="sessions_list"
+      activeAt={activeAt} needsYou={needsYou} renderRow={(r) => <span>{r.id}</span>} />));
+    expect(header()).not.toBeNull();
+    expect(shown()).toHaveLength(49);
+
+    const createdActivity = row("new", 0);
+    current = [createdActivity, ...initial];
+    delta = [createdActivity];
+    revision = "r1";
+    await act(async () => { await list.load(); });
+
+    expect(list.getTransportRows()).toHaveLength(50);
+    expect(list.getTransportRows().every((r) => activeAt(r) >= NOW - 24 * HOUR)).toBe(true);
+    expect(list.getSnapshot().rows.some((r) => r.id === "old")).toBe(true);
+    expect(list.getSnapshot().rows.some((r) => r.id === "new")).toBe(false);
+    expect(header()).not.toBeNull();
+    expect(header()!.querySelector("button")!.textContent).toBe(`${t("paged-agents.earlier")}1`);
+    expect(shown()).toHaveLength(49);
+    await act(async () => header()!.querySelector("button")!.click());
+    expect(shown()).toHaveLength(50);
+    expect(shown().at(-1)).toBe("old");
   });
 
   it("offers no window to a list that gives no activity time", async () => {

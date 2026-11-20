@@ -96,7 +96,7 @@ export interface SessionListPresentation<T> extends StableRowOrder<T> {
 }
 
 export interface SessionListOptions<T> {
-  /** Retains presented rows across transport refreshes and appends newly loaded rows in stable order. */
+  /** Retains presented rows across transport refreshes and sorts admitted rows by current structural placement. */
   presentation?: SessionListPresentation<T>;
   /** Side data refreshed with a coalesced list read, never once per raw hint. */
   onRefresh?: () => void;
@@ -574,7 +574,7 @@ export class SessionList<T> {
     this.transport = this.stabilize(transport);
     if (!this.presentation) return this.transport;
     if (resetPresentation) this.presented = [];
-    this.presented = mergeStableRows(this.presented, transport, candidates, this.identity, this.presentation, this.presentation.parentOf, added, PAGE_SIZE);
+    this.presented = mergeStableRows(this.presented, transport, candidates, this.identity, this.presentation, this.presentation.parentOf, added);
     return this.stabilize(this.presented);
   }
 

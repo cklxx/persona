@@ -301,16 +301,17 @@ export function PagedSessionList<T>({ root, path, identity, compare, removeIdent
   const split = groupActiveAt && start !== null
     ? splitByActivity(list.getTransportRows(), groupActiveAt, start, { total: page.total, hasMore: page.hasMore, needsYou: rowNeedsYou, needsYouTotal })
     : null;
-  const hasEarlier = Boolean(split?.reached && split.earlier > 0);
-  // Transport says whether every recent row is loaded. Presentation then partitions its retained rows by their current
-  // activity, so the header's position and counts include rows that an activity-only refresh kept out of the prefix.
+  // Transport's newest-first split supplies the server totals. Presentation partitions its own retained rows too: an
+  // older retained row needs Earlier even when every row left in the current transport prefix is recent.
   const presentedRows = useMemo((): readonly T[] => {
-    if (!hasEarlier || !groupActiveAt || start === null) return orderedRows;
+    if (!groupActiveAt || start === null) return orderedRows;
     return [...orderedRows.filter((row) => groupActiveAt(row) >= start), ...orderedRows.filter((row) => !(groupActiveAt(row) >= start))];
-  }, [hasEarlier, groupActiveAt, start, orderedRows]);
-  const firstEarlier = hasEarlier && groupActiveAt && start !== null ? presentedRows.findIndex((row) => !(groupActiveAt(row) >= start)) : -1;
+  }, [groupActiveAt, start, orderedRows]);
+  const firstEarlier = groupActiveAt && start !== null ? presentedRows.findIndex((row) => !(groupActiveAt(row) >= start)) : -1;
   const recent = firstEarlier === -1 ? presentedRows.length : firstEarlier;
-  const earlierCount = hasEarlier ? Math.max(0, page.total - recent, presentedRows.length - recent) : 0;
+  const presentedEarlier = presentedRows.length - recent;
+  const hasEarlier = presentedEarlier > 0 || Boolean(split?.reached && split.earlier > 0);
+  const earlierCount = hasEarlier && split ? Math.max(0, page.total - split.recent, presentedEarlier) : 0;
   const recentNeedsYou = presentedRows.slice(0, recent).filter(rowNeedsYou).length;
   const earlierNeedsYou = needsYouTotal === undefined ? presentedRows.slice(recent).filter(rowNeedsYou).length
     : Math.min(earlierCount, Math.max(0, needsYouTotal - recentNeedsYou));

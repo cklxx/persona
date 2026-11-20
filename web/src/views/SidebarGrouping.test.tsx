@@ -430,6 +430,14 @@ describe("stable machine, workspace and tab order (#11801)", () => {
     await flush();
     expect(agentsBlock().querySelector('a[href="/s/mac/b1"]')).not.toBeNull();
 
+    // Stored membership does not follow an ordinary Idle → working transition.
+    sessions = [sessions[0]!, placed("b1", "beta", "working")];
+    act(() => upsertSession(sessions[1]!));
+    await flush();
+    expect(heading("beta")).toBeUndefined();
+    expect(heading(idleName())).toBeDefined();
+    expect(agentsBlock().querySelector('a[href="/s/mac/b1"] [data-state="working"]')).not.toBeNull();
+
     const alpha = agentsBlock().querySelector<HTMLAnchorElement>('a[href="/s/mac/a1"]')!;
     act(() => {
       alpha.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
@@ -458,5 +466,70 @@ describe("stable machine, workspace and tab order (#11801)", () => {
     expect(heading("beta")).toBeDefined();
     expect(heading(idleName())).toBeUndefined();
     expect(agentsBlock().querySelector('a[href="/s/mac/b1"] [data-state="needs_you"]')).not.toBeNull();
+  });
+
+  it("distinguishes stored empty membership from a new tab and admits only attention from Idle", async () => {
+    localStorage.setItem("persona.agentGrouping", "space");
+    sessionStorage.setItem("persona.agentActiveSpaces", "[]");
+    const names = ["alpha", "beta", "gamma", "delta"];
+    const placed = (id: string, space: string, patch: Partial<Session> = {}): Session => ({
+      machine_id: "mac", session_id: id, title: id, cwd: `/${space}`, status: "idle", state: "idle",
+      updated_at: "2026-01-01T01:00:00Z", space_id: space, space_name: space, space_index: names.indexOf(space),
+      slot_id: `${space}-tab`, slot_index: 0, ...patch,
+    });
+    let sessions = names.map((space) => placed(`${space[0]}1`, space));
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      const path = new URL(url, "http://hub.example.com").pathname;
+      const body = path.endsWith("/sessions") ? { sessions } : path.endsWith("/machines") ? { machines: [mac] } : {};
+      return Promise.resolve(new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } }));
+    }));
+    await refresh();
+    await render();
+    const headings = () => [...agentsBlock().querySelectorAll<HTMLButtonElement>("[data-sidebar-group-heading] button[aria-expanded]")];
+    const heading = (name: string) => headings().find((button) => button.textContent?.includes(name));
+    for (const name of names) expect(heading(name)).toBeUndefined();
+    expect(heading(t("sidebar.idle_spaces", { count: 4 }))).toBeDefined();
+
+    sessions = [placed("a1", "alpha", { status: "working", state: "working" }), ...sessions.slice(1)];
+    act(() => upsertSession(sessions[0]!));
+    await flush();
+    expect(heading("alpha")).toBeUndefined();
+    expect(heading(t("sidebar.idle_spaces", { count: 4 }))).toBeDefined();
+
+    sessions = [
+      sessions[0]!,
+      placed("b1", "beta", { state: "needs_you" }),
+      placed("c1", "gamma", { work: { phase: "done", just_finished: true } }),
+      placed("d1", "delta", { status: "working", state: "working", background_waiting: true }),
+    ];
+    act(() => sessions.slice(1).forEach((session) => upsertSession(session)));
+    await flush();
+    expect(heading("alpha")).toBeUndefined();
+    for (const name of names.slice(1)) expect(heading(name)).toBeDefined();
+    expect(heading(t("sidebar.idle_spaces", { count: 1 }))).toBeDefined();
+
+    // A reload in this tab keeps the attention-admitted rows active and ordinary work in Idle.
+    act(() => root.unmount());
+    reset();
+    root = createRoot(host);
+    await render();
+    await act(async () => { await refresh(); });
+    await flush();
+    expect(heading("alpha")).toBeUndefined();
+    for (const name of names.slice(1)) expect(heading(name)).toBeDefined();
+    expect(heading(t("sidebar.idle_spaces", { count: 1 }))).toBeDefined();
+
+    // A new tab has no stored set. It derives the current layout, so ordinary work starts active.
+    act(() => root.unmount());
+    reset();
+    sessionStorage.removeItem("persona.agentActiveSpaces");
+    sessions = [sessions[0]!, ...names.slice(1).map((space) => placed(`${space[0]}1`, space))];
+    root = createRoot(host);
+    await render();
+    await act(async () => { await refresh(); });
+    await flush();
+    expect(heading("alpha")).toBeDefined();
+    for (const name of names.slice(1)) expect(heading(name)).toBeUndefined();
+    expect(heading(t("sidebar.idle_spaces", { count: 3 }))).toBeDefined();
   });
 });

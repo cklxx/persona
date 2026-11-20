@@ -160,7 +160,7 @@ function GroupRows<T>({ group, dimension, scope, source, renderRow }: {
   // a session started from another one shown here comes under it, a level in (#5935), as in the flat list
   const sourceRows = rowOrder ? page.rows : preview;
   const nesting = useMemo(() => parentOf ? nestUnderParents(sourceRows, identity, parentOf) : null, [sourceRows, identity, parentOf]);
-  // The stable list retains presented rows when transport activity displaces them and appends each newly read page.
+  // The stable list retains displaced rows and sorts every admitted page by current structural placement.
   // Other lists keep the transport's newest-first order (#11801).
   const arranged = nesting?.rows ?? sourceRows;
   const rows = arranged.length > limit ? arranged.slice(0, limit) : arranged;

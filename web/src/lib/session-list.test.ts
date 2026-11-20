@@ -60,7 +60,7 @@ describe("SessionList baseline, filters and structural sharing", () => {
   it("applies stable presentation to an already loaded root without following later activity", async () => {
     const list = make();
     await list.load();
-    list.setPresentation({ compare: (a, b) => Number(b.id) - Number(a.id), placementOf: (r) => r.id });
+    list.setPresentation({ compare: (a, b) => Number(b.id) - Number(a.id) });
     const before = ids(list);
     expect(before[0]).toBe("49");
     expect(before.at(-1)).toBe("0");
@@ -90,13 +90,13 @@ describe("SessionList baseline, filters and structural sharing", () => {
       })) as ReturnType<typeof api>;
     });
     const options: SessionListOptions<Row> = { counts: false, presentation: {
-      compare: (a, b) => Number(a.title) - Number(b.title), placementOf: (r) => r.title,
+      compare: (a, b) => Number(a.title) - Number(b.title),
     } };
     const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => `r${from + i}`);
     const list = make(undefined, options);
     await list.load();
     await list.more();
-    expect(ids(list)).toEqual([...range(71, 120), ...range(21, 70)]);
+    expect(ids(list)).toEqual(range(21, 120));
 
     const left = source[109]!, right = source[119]!;
     delta = [{ ...left, title: right.title }, { ...right, title: left.title }];
@@ -104,7 +104,7 @@ describe("SessionList baseline, filters and structural sharing", () => {
     revision = "r1";
     await list.load();
     const afterSwap = ids(list);
-    expect(afterSwap).toEqual([...range(71, 109), "r120", ...range(111, 119), "r110", ...range(21, 70)]);
+    expect(afterSwap).toEqual([...range(21, 109), "r120", ...range(111, 119), "r110"]);
 
     const reloaded = make(undefined, options);
     await reloaded.load();

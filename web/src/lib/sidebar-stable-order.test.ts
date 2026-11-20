@@ -66,6 +66,17 @@ describe("stable sidebar order (#11801)", () => {
     expect(legacy).toEqual(flat);
   });
 
+  it("puts an unindexed tab before loose sessions in its workspace in both paged and legacy placement", () => {
+    const base = { machine_id: "mac", title: "", cwd: "/tmp", status: "idle" as const, state: "idle" as const, space_id: "alpha", space_name: "alpha" };
+    const tab: Session = { ...base, session_id: "tab", slot_id: "tab" };
+    const loose: Session = { ...base, session_id: "loose" };
+    const flat = [loose, tab].sort(machineSessionOrder(machines)).map((s) => s.session_id);
+    const tree = buildMachineTree(machines, [loose, tab])[0]!;
+    const legacy = tree.spaces[0]!.sessions.map((s) => s.session_id);
+    expect(flat).toEqual(["tab", "loose"]);
+    expect(legacy).toEqual(flat);
+  });
+
   it("reconciles real herdr slot and pane moves, created tabs and reloads without following activity", () => {
     const rows = [
       { ...agent("a1", "mac", "alpha", "tab-a", 0, 1), pane_index: 0 },
@@ -96,6 +107,20 @@ describe("stable sidebar order (#11801)", () => {
     const withFirst = [...moved, created];
     expect(ids(merge(afterMove, withFirst, new Set(["first"])))).toEqual(["first", "b1", "a2", "a1"]);
     expect(ids(merge([], withFirst))).toEqual(["first", "b1", "a2", "a1"]);
+  });
+
+  it("follows a real machine-order change instead of previous row positions", () => {
+    const rows = [agent("mac-row", "mac", "alpha", "tab", 0, 1), agent("pc-row", "pc", "gamma", "tab", 0, 2)];
+    const key = (row: Session) => row.session_id;
+    const candidates = new Map(rows.map((row) => [key(row), row]));
+    const previous = mergeStableRows([], rows, candidates, key, machineSessionPresentation(machines));
+    expect(previous.map(key)).toEqual(["mac-row", "pc-row"]);
+
+    const reversedMachines = [...machines].reverse();
+    const order = machineSessionPresentation(reversedMachines);
+    const after = mergeStableRows(previous, [...rows].reverse(), candidates, key, order, undefined, new Set());
+    expect(after.map(key)).toEqual(["pc-row", "mac-row"]);
+    expect(mergeStableRows([], rows, candidates, key, order).map(key)).toEqual(after.map(key));
   });
 
   it("does not move catalog projects or workspaces when their counts or hub order changes", () => {

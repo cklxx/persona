@@ -299,7 +299,7 @@ describe("stable presentation over paged transport (#11801)", () => {
     const rankedList = new SessionList<Ranked>("/sessions", identity, transport);
     await rankedList.load();
     await act(async () => root.render(<PagedSessionList root={rankedList} path="/sessions" identity={identity} compare={transport} event="sessions_list"
-      grouping={{ dimension: "machine", bar: null, label: "Machine", rowOrder: { compare: stable, placementOf: (r) => r.place } }}
+      grouping={{ dimension: "machine", bar: null, label: "Machine", rowOrder: { compare: stable } }}
       placeOf={(r) => ({ machine: r.machine, project: r.project, group: r.group })}
       renderRow={(r) => <span data-row={r.id}>{r.id}</span>} />));
     await settle();
@@ -352,7 +352,7 @@ describe("stable presentation over paged transport (#11801)", () => {
     const rankedList = new SessionList<Ranked>("/sessions", identity, transport);
     await rankedList.load();
     await act(async () => root.render(<PagedSessionList root={rankedList} path="/sessions" identity={identity} compare={transport} event="sessions_list"
-      grouping={{ dimension: "machine", bar: null, label: "Machine", query, rowOrder: { compare: stable, placementOf: (r) => r.place } }}
+      grouping={{ dimension: "machine", bar: null, label: "Machine", query, rowOrder: { compare: stable } }}
       placeOf={(r) => ({ machine: r.machine, project: r.project, group: r.group })}
       renderRow={(r) => <span tabIndex={0} data-row={r.id}>{r.id}</span>} />));
     await settle();
@@ -376,7 +376,7 @@ describe("stable presentation over paged transport (#11801)", () => {
     expect(shown()).toEqual(range(71, 76));
     await act(async () => more().click());
     await settle();
-    expect(shown()).toEqual([...range(71, 120), "r1"]);
+    expect(shown()).toEqual(range(71, 120));
   });
 
   it("retains flat-search rows and focus when activity brings an unloaded row into the prefix", async () => {
@@ -396,22 +396,20 @@ describe("stable presentation over paged transport (#11801)", () => {
       await vi.advanceTimersByTimeAsync(2_100);
     });
 
-    expect(shown().slice(0, before.length)).toEqual(before);
-    expect(shown().at(-1)).toBe("r1"); // newly active, but an old row: it follows the retained presentation
+    expect(shown()).toEqual(before); // newly active, but an old row: a delta without `added` does not admit it
     expect(document.activeElement).toBe(focused);
   });
 
-  it("appends a second network page without moving the rows already shown", async () => {
+  it("reveals the first page, then sorts a second network page into the structural union", async () => {
     await showRankedPages();
     expect(shown()).toEqual(range(71, 76));
     await act(async () => more().click());
     await settle();
-    const firstPage = range(71, 120);
-    expect(shown()).toEqual(firstPage);
+    expect(shown()).toEqual(range(71, 120));
 
     await act(async () => more().click());
     await settle();
-    expect(shown()).toEqual([...firstPage, ...range(21, 70)]);
+    expect(shown()).toEqual(range(21, 120));
   });
 
   it("applies activity, swapped slots and a new first tab, then reloads to the same placement", async () => {
@@ -439,7 +437,7 @@ describe("stable presentation over paged transport (#11801)", () => {
     const renderList = async (rankedList: SessionList<Ranked>) => {
       await rankedList.load();
       await act(async () => root.render(<PagedSessionList root={rankedList} path="/sessions" identity={identity} compare={transport} event="sessions_list"
-        grouping={{ dimension: "machine", bar: null, label: "Machine", rowOrder: { compare: stable, placementOf: (r) => r.place } }}
+        grouping={{ dimension: "machine", bar: null, label: "Machine", rowOrder: { compare: stable } }}
         placeOf={(r) => ({ machine: r.machine, project: r.project, group: r.group })}
         renderRow={(r) => <span data-row={r.id} data-rank={r.rank} data-place={r.place}>{r.id}</span>} />));
       await settle();

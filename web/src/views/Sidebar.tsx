@@ -19,7 +19,7 @@ import { keyedRefs } from "../lib/keyed-refs";
 import { buildMachineTree, machineSessionOrder, machineSessionPresentation } from "../lib/herdr-tree";
 import { selectSidebarMachines } from "../lib/sidebar-machines";
 import { machineWithHub } from "../lib/mesh";
-import { baseName, sessionTitle, tabLabel } from "../lib/format";
+import { backgroundWaiting, baseName, sessionTitle, stateOf, tabLabel } from "../lib/format";
 import { cardState } from "../lib/card-focus";
 import { agentKey, isSpacePinned, pinnedSessions } from "../lib/pins";
 import { firstAndCurrent } from "../lib/persona-nav";
@@ -792,13 +792,16 @@ function BoundedAgentsBlock({ reg, hover, activeKey, go, onNewAgent, onNavigate,
 
 
 // Tab-scoped UI memory: a reload presents the same active/Idle membership, but a new tab starts from current activity.
+// Undefined means no stored membership; a stored empty set is a deliberate all-Idle layout, not a new browser tab.
 const ACTIVE_SPACES_KEY = "persona.agentActiveSpaces";
-function retainedActiveSpaces(): ReadonlySet<string> {
+function retainedActiveSpaces(): ReadonlySet<string> | undefined {
   try {
-    const value: unknown = JSON.parse(sessionStorage.getItem(ACTIVE_SPACES_KEY) ?? "[]");
-    return new Set(Array.isArray(value) ? value : []);
+    const stored = sessionStorage.getItem(ACTIVE_SPACES_KEY);
+    if (stored === null) return undefined;
+    const value: unknown = JSON.parse(stored);
+    return Array.isArray(value) ? new Set(value.filter((key): key is string => typeof key === "string")) : undefined;
   } catch {
-    return new Set();
+    return undefined;
   }
 }
 
@@ -996,18 +999,25 @@ function LegacyAgentsBlock({ reg, hover, activeKey, go, onNewAgent, onNavigate, 
   const closeMarkSeen = useCallback(() => setConfirmSeen(null), []);
   const clearKept = useCallback(() => setKept(new Set()), []);
 
-  // Quieting a row does not move its workspace below the pointer. Current activity wins over retained placement, so
-  // needs-you, Just finished and background work always leave the folded Idle section. The active keys survive reload.
-  const retainedActive = useRef<ReadonlySet<string> | undefined>(undefined);
-  if (retainedActive.current === undefined) retainedActive.current = retainedActiveSpaces();
-  const busy = (sp: Space) => sp.sessions.some((s) => !isQuiet(s, mutes) || activeKey === `s:${s.machine_id}/${s.session_id}`);
+  // With no stored membership a new tab derives the current busy layout. Once membership exists, ordinary working does
+  // not pull an Idle workspace out of its section. Attention still does: needs-you, unread, replies, Just finished and
+  // background waits, as does opening a row. Quieting an already active workspace leaves its membership alone.
+  const retainedActive = useRef<{ value: ReadonlySet<string> | undefined } | undefined>(undefined);
+  if (retainedActive.current === undefined) retainedActive.current = { value: retainedActiveSpaces() };
+  const storedActive = retainedActive.current.value;
+  const busy = (sp: Space) => sp.sessions.some((s) => {
+    const selected = activeKey === `s:${s.machine_id}/${s.session_id}`;
+    if (storedActive === undefined) return !isQuiet(s, mutes) || selected;
+    const state = stateOf(s);
+    return selected || (!isQuiet(s, mutes) && (state !== "working" || backgroundWaiting(s)));
+  });
   // pinned spaces lead; under a quick filter nothing folds into "Idle spaces"
-  const arrangedSpaces = arrangeSpaces(spaces, { pins, mutes, filtered, busy, retainedActive: retainedActive.current });
+  const arrangedSpaces = arrangeSpaces(spaces, { pins, mutes, filtered, busy, retainedActive: storedActive });
   // A temporary filter or another grouping is not a presentation of this list and must not replace its membership.
   useLayoutEffect(() => {
     if (!loaded || filtered || shownGrouping !== "space") return;
     const keys = arrangedSpaces.active.map((sp) => sp.key);
-    retainedActive.current = new Set(keys);
+    retainedActive.current = { value: new Set(keys) };
     try {
       const value = JSON.stringify(keys);
       if (sessionStorage.getItem(ACTIVE_SPACES_KEY) !== value) sessionStorage.setItem(ACTIVE_SPACES_KEY, value);

@@ -74,72 +74,75 @@ describe("nestUnderParents", () => {
 });
 
 describe("mergeStableRows", () => {
-  const compare = (a: Row, b: Row) => a.id.localeCompare(b.id);
-  const placementOf = (row: Row) => row.place ?? row.id;
-  const order = { compare, placementOf };
-  const candidates = (rows: Row[]) => new Map(rows.map((row) => [key(row), row]));
+  const byId = { compare: (a: Row, b: Row) => a.id.localeCompare(b.id) };
+  const byPlace = { compare: (a: Row, b: Row) => a.place! - b.place! || a.id.localeCompare(b.id) };
+  const candidates = (rows: readonly Row[]) => new Map(rows.map((row) => [key(row), row]));
 
-  it("retains a displaced row but removes one whose candidate is gone", () => {
+  it("retains displaced rows, removes departed candidates and admits full-read identities", () => {
     const initial = [r("b"), r("a")];
-    const presented = mergeStableRows([], initial, candidates(initial), key, order);
+    const presented = mergeStableRows([], initial, candidates(initial), key, byId);
     expect(ids(presented)).toEqual(["a", "b"]);
 
     const withNew = [r("c"), ...initial];
-    const retained = mergeStableRows(presented, [r("c"), r("b")], candidates(withNew), key, order);
+    const retained = mergeStableRows(presented, [r("c"), r("b")], candidates(withNew), key, byId);
     expect(ids(retained)).toEqual(["a", "b", "c"]);
 
     const withoutA = withNew.filter((row) => row.id !== "a");
-    const removed = mergeStableRows(retained, [r("c"), r("b")], candidates(withoutA), key, order);
+    const removed = mergeStableRows(retained, [r("c"), r("b")], candidates(withoutA), key, byId);
     expect(ids(removed)).toEqual(["b", "c"]);
   });
 
-  it("applies swapped herdr slots and matches a fresh reload", () => {
-    const byPlace = { compare: (a: Row, b: Row) => a.place! - b.place!, placementOf };
+  it("keeps a displaced b between a and c by its own placement when a's activity changes", () => {
+    const initial = [r("a", undefined, 0), r("b", undefined, 1), r("c", undefined, 2)];
+    const presented = mergeStableRows([], initial, candidates(initial), key, byPlace);
+    const activeA = { ...initial[0]!, activity: 100 };
+    const current = [activeA, initial[1]!, initial[2]!];
+    // b is absent from the newest-first transport prefix, not removed from the candidates.
+    const after = mergeStableRows(presented, [activeA, initial[2]!], candidates(current), key, byPlace, undefined, new Set());
+    expect(ids(after)).toEqual(["a", "b", "c"]);
+    expect(after[0]).toBe(activeA);
+  });
+
+  it("places a created first tab without moving a displaced retained row away from its placement", () => {
+    const initial = [r("a", undefined, 0), r("b", undefined, 1), r("c", undefined, 2)];
+    const presented = mergeStableRows([], initial, candidates(initial), key, byPlace);
+    const first = r("first", undefined, -1);
+    const activeA = { ...initial[0]!, activity: 100 };
+    const current = [first, activeA, initial[1]!, initial[2]!];
+    const after = mergeStableRows(presented, [first, activeA, initial[2]!], candidates(current), key, byPlace, undefined, new Set(["first"]));
+    expect(ids(after)).toEqual(["first", "a", "b", "c"]);
+    expect(ids(mergeStableRows([], current, candidates(current), key, byPlace))).toEqual(ids(after));
+  });
+
+  it("admits an older newly active row on a full read but not on a delta", () => {
+    const initial = [r("a", undefined, 1), r("b", undefined, 2)];
+    const presented = mergeStableRows([], initial, candidates(initial), key, byPlace);
+    const older = { ...r("older", undefined, 3), activity: 100 };
+    const current = [...initial, older];
+    const transport = [older, initial[0]!];
+    expect(ids(mergeStableRows(presented, transport, candidates(current), key, byPlace, undefined, new Set()))).toEqual(["a", "b"]);
+    expect(ids(mergeStableRows(presented, transport, candidates(current), key, byPlace))).toEqual(["a", "b", "older"]);
+  });
+
+  it("applies swapped structural placements and matches a fresh reload", () => {
     const initial = [r("a", undefined, 0), r("b", undefined, 1)];
     const presented = mergeStableRows([], initial, candidates(initial), key, byPlace);
     const swapped = [r("a", undefined, 1), r("b", undefined, 0)];
-    const after = mergeStableRows(presented, swapped, candidates(swapped), key, byPlace);
+    const after = mergeStableRows(presented, swapped, candidates(swapped), key, byPlace, undefined, new Set());
     expect(ids(after)).toEqual(["b", "a"]);
     expect(ids(mergeStableRows([], swapped, candidates(swapped), key, byPlace))).toEqual(ids(after));
   });
 
-  it("rebuilds a structural move one transport page at a time, as a reload does", () => {
-    const byPlace = { compare: (a: Row, b: Row) => a.place! - b.place!, placementOf };
-    const transport = [6, 5, 4, 3, 2, 1].map((place) => r(`r${place}`, undefined, place));
-    const merge = (previous: readonly Row[], window: readonly Row[], all: readonly Row[]) => mergeStableRows(
-      previous, window, candidates([...all]), key, byPlace, undefined, undefined, 2);
-    const first = merge([], transport.slice(0, 2), transport.slice(0, 2));
-    const second = merge(first, transport.slice(0, 4), transport.slice(0, 4));
-    expect(ids(second)).toEqual(["r5", "r6", "r3", "r4"]);
-
-    const moved = transport.slice(0, 4).map((row) => row.id === "r6" ? { ...row, place: 0 } : row);
-    const after = merge(second, moved, moved);
-    const freshFirst = merge([], moved.slice(0, 2), moved.slice(0, 2));
-    const fresh = merge(freshFirst, moved, moved);
-    expect(ids(after)).toEqual(["r6", "r5", "r3", "r4"]);
-    expect(ids(after)).toEqual(ids(fresh));
-  });
-
-  it("inserts a created first tab without requiring the loaded tabs' indices to change", () => {
-    const byPlace = { compare: (a: Row, b: Row) => a.place! - b.place!, placementOf };
-    const initial = [r("a", undefined, 1), r("b", undefined, 2)];
-    const presented = mergeStableRows([], initial, candidates(initial), key, byPlace);
-    const inserted = [r("new", undefined, 0), ...initial];
-    expect(ids(mergeStableRows(presented, inserted, candidates(inserted), key, byPlace, undefined, new Set(["new"])))).toEqual(["new", "a", "b"]);
-    // The same row arriving only because it became active is an old, unloaded row and stays behind the loaded prefix.
-    expect(ids(mergeStableRows(presented, inserted, candidates(inserted), key, byPlace))).toEqual(["a", "b", "new"]);
-  });
-
-  it("keeps activity-only refreshes and a second page from moving loaded rows", () => {
-    const byPlace = { compare: (a: Row, b: Row) => a.place! - b.place!, placementOf };
+  it("sorts every newly read page into the union without using previous positions", () => {
     const initial = [r("a", undefined, 10), r("b", undefined, 20)];
     const presented = mergeStableRows([], initial, candidates(initial), key, byPlace);
-    const active = [{ ...initial[0]!, activity: 100 }, { ...initial[1]!, activity: 200 }];
-    const refreshed = mergeStableRows(presented, [active[1]!, active[0]!], candidates(active), key, byPlace);
-    expect(ids(refreshed)).toEqual(["a", "b"]);
-    expect(refreshed[0]).toBe(active[0]);
-    expect(refreshed[1]).toBe(active[1]);
-    const secondPage = [...active, r("older", undefined, 0)];
-    expect(ids(mergeStableRows(refreshed, secondPage, candidates(secondPage), key, byPlace))).toEqual(["a", "b", "older"]);
+    const secondPage = [...initial, r("older", undefined, 0)];
+    expect(ids(mergeStableRows(presented, secondPage, candidates(secondPage), key, byPlace))).toEqual(["older", "a", "b"]);
+  });
+
+  it("sorts the union without separating side sessions from their parent", () => {
+    const rows = [r("s2", "p"), r("q"), r("s1", "p"), r("p"), r("z")];
+    const ordered = mergeStableRows([], rows, candidates(rows), key, byId, parentKey);
+    expect(ids(ordered)).toEqual(["p", "s1", "s2", "q", "z"]);
   });
 });
